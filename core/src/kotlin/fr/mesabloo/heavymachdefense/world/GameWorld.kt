@@ -15,6 +15,8 @@ import ktx.box2d.box
 import fr.mesabloo.heavymachdefense.ifDebug
 import fr.mesabloo.heavymachdefense.ui.stage.Terrain
 import ktx.actors.contains
+import fr.mesabloo.heavymachdefense.timers.cellMiningTimer
+import kotlin.math.min
 import ktx.box2d.createWorld
 
 class GameWorld(private val terrain: Terrain) : Disposable {
@@ -23,6 +25,11 @@ class GameWorld(private val terrain: Terrain) : Disposable {
     private val debugRenderer = Box2DDebugRenderer()
 
     private val bodies = Array<Body>(50)
+
+    companion object {
+        // Provisional shared speed until per-machine movement stats are available.
+        const val MACHINE_SPEED_PIXELS_PER_SECOND = 64f
+    }
 
     init {
         this.world.setContactListener(object : ContactListener {
@@ -75,7 +82,24 @@ class GameWorld(private val terrain: Terrain) : Disposable {
     }
 
     fun render(deltaTime: Float) {
-        this.world.step(1 / 60f, 6, 2)
+        // Use elapsed time rather than one physics step per rendered frame.
+        // Clamp long stalls and subdivide to keep Box2D steps bounded.
+        if (!cellMiningTimer.isPaused && !cellMiningTimer.isStopped) {
+            var remaining = deltaTime.coerceIn(0f, 0.25f)
+            while (remaining > 0f) {
+                val step = min(remaining, 1f / 60f)
+                world.getBodies(bodies)
+                val destinationY = (terrain.height - 192f) / PPM
+                bodies.forEach { body ->
+                    if (body.userData is Machine) {
+                        val distance = (destinationY - body.position.y).coerceAtLeast(0f)
+                        body.setLinearVelocity(0f, min(MACHINE_SPEED_PIXELS_PER_SECOND / PPM, distance / step))
+                    }
+                }
+                world.step(step, 6, 2)
+                remaining -= step
+            }
+        }
 
         bodies.clear()
         this.world.getBodies(bodies)

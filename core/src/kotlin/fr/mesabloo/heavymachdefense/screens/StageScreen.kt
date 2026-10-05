@@ -11,6 +11,8 @@ import fr.mesabloo.heavymachdefense.entities.createBases
 import fr.mesabloo.heavymachdefense.entities.createTerrainBody
 import fr.mesabloo.heavymachdefense.data.Specials
 import fr.mesabloo.heavymachdefense.listeners.stage.*
+import fr.mesabloo.heavymachdefense.managers.BackgroundMusicManager
+import fr.mesabloo.heavymachdefense.managers.backgroundMusicManager
 import fr.mesabloo.heavymachdefense.managers.animationManager
 import fr.mesabloo.heavymachdefense.managers.assets.StageAssetsManager
 import fr.mesabloo.heavymachdefense.managers.assets.stageAssetsManager
@@ -88,7 +90,11 @@ class StageScreen(
 
     private lateinit var systemMenu: SystemMenu
 
-    private var backgroundMusicVolume: Float = 1.0f
+    private var backgroundMusicVolume: Float = 0.6f
+        set(value) {
+            field = value.coerceIn(0f, 1f)
+            backgroundMusicManager.setVolume(BackgroundMusicManager.GAMEPLAY, field)
+        }
     private var effectsVolume: Float = 1.0f
 
     private lateinit var upgradeEquipButton: UpgradeEquipment
@@ -123,6 +129,7 @@ class StageScreen(
         if (this.isLoading)
             return
 
+        backgroundMusicManager.play(BackgroundMusicManager.GAMEPLAY, this.backgroundMusicVolume)
         this.systemMenu = SystemMenu(this::backgroundMusicVolume, this::effectsVolume, this)
 
         lateinit var scrollpane: ScrollPane
@@ -350,17 +357,25 @@ class StageScreen(
         super.pause()
 
         cellMiningTimer.stop()
+        backgroundMusicManager.pause(BackgroundMusicManager.GAMEPLAY)
     }
 
     override fun resume() {
         super.resume()
 
         cellMiningTimer.start()
+        if (!this.isLoading) backgroundMusicManager.play(BackgroundMusicManager.GAMEPLAY, this.backgroundMusicVolume)
+    }
+
+    override fun hide() {
+        super.hide()
+        backgroundMusicManager.stop(BackgroundMusicManager.GAMEPLAY)
     }
 
     override fun dispose() {
         super.dispose()
 
+        backgroundMusicManager.stop(BackgroundMusicManager.GAMEPLAY)
         this.gameWorld.dispose()
 
         animationManager.dispose()

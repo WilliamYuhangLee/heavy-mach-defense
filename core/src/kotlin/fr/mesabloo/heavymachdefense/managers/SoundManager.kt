@@ -12,6 +12,34 @@ class BackgroundMusicManager : Disposable {
     }
 
     private val manager = AssetManager()
+    private var activePath: String? = null
+
+    fun play(path: String, volume: Float = 0.6f) {
+        if (activePath != path) {
+            activePath?.let { load(it).stop() }
+            activePath = path
+        }
+        load(path).also {
+            it.isLooping = true
+            it.volume = volume.coerceIn(0f, 1f)
+            it.play()
+        }
+    }
+
+    fun setVolume(path: String, volume: Float) {
+        if (manager.isLoaded(path)) load(path).volume = volume.coerceIn(0f, 1f)
+    }
+
+    fun pause(path: String) {
+        if (activePath == path) load(path).pause()
+    }
+
+    fun stop(path: String) {
+        if (activePath == path) {
+            load(path).stop()
+            activePath = null
+        }
+    }
 
     fun preload() {
         this.manager.load<Music>(INTRO)

@@ -45,8 +45,11 @@ on macOS.
 ## Current implementation limits
 
 This remains an unfinished remake. Completed machine builds now show unit artwork
-in the queue and deploy a stationary unit above the allied base. Movement, combat,
-and mission completion are not implemented by this fix. Turret construction also
+in the queue and deploy a unit above the allied base. Units advance toward the enemy base at a
+provisional shared speed of 64 pixels per second and stop before it. Combat and
+mission completion remain unimplemented. Intro and gameplay music loop, and the
+mission music slider controls playback volume. Sound effects are not implemented;
+the repository currently only supplies music tracks. Turret construction also
 still contains upstream placeholders.
 
 ## Verifying machine deployment
@@ -60,7 +63,8 @@ With Java 11 selected in `JAVA_HOME`, run:
 This graphics smoke test requires a desktop session. It uses a hidden window,
 real first-mission assets, and an in-memory save; it does not read or modify player
 saves. It checks queue artwork, single and simultaneous completions, pause/stop
-behavior, visible deployment positions, and shared sprite consistency.
+behavior, visible deployment positions, shared sprite consistency, frame-rate-independent movement, pause/resume,
+destination stopping, music playback, and volume controls.
 
 ## Gameplay
 

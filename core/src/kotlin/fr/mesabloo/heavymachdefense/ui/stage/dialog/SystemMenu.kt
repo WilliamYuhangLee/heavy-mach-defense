@@ -85,6 +85,7 @@ class SystemMenu(
                 it.add(Image(stageAssetsManager.get(StageAssetsManager.Dialog.VOLUME_OPTIONS))).left()
                 it.add(Table().also {
                     it.add(VolumeSlider().also {
+                        it.value = this.backgroundMusicVolume.get()
                         it.addListener(SetBackgroundMusicVolume(this.backgroundMusicVolume))
                     }).center().row()
                     it.add(VolumeSlider().also {
