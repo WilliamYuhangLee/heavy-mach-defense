@@ -4,7 +4,7 @@ import fr.mesabloo.heavymachdefense.data.SpecialKind
 import kotlinx.serialization.Serializable
 
 @Serializable
-abstract class Slot
+sealed class Slot
 
 @Serializable
 data class MachineSlot(val kind: MachineKind) : Slot()

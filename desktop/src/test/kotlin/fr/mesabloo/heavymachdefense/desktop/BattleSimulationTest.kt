@@ -5,6 +5,7 @@ import fr.mesabloo.heavymachdefense.data.*
 import java.util.Date
 import kotlin.math.abs
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 object BattleSimulationTest {
@@ -101,6 +102,12 @@ object BattleSimulationTest {
         check(save.lastStageCompleted==1 && save.credits==reward)
         val replay=MissionProgress.victory(save,1);check(replay<reward && save.lastStageCompleted==1)
         MissionProgress.victory(save,2);check(save.buildSlots.any { it is MachineSlot && it.kind==MachineKind.MISSILE })
+        // Mission 2 introduces the first non-default equipment list. Every slot subtype
+        // must round-trip, including equipment and special loadouts edited in the workshop.
+        check(Json.decodeFromString<GameSave>(Json.encodeToString(save)) == save)
+        save.buildSlots.add(TurretSlot(TurretKind.RIFLE))
+        save.specialSlots.removeAt(0)
+        check(Json.decodeFromString<GameSave>(Json.encodeToString(save)) == save)
         checkCampaignBalance()
         println("PASS: targeting, mutual combat, deaths, one-time kill rewards, pause, 30/60/120 FPS, turrets, EMP, first-mission victory (${mission.elapsed.toInt()}s), idle defeat (${idle.elapsed.toInt()}s), progression and replay rewards.")
     }
