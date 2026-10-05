@@ -42,29 +42,42 @@ on macOS.
 
 > TODO (not yet provided)
 
-## Current implementation limits
+## Playable desktop campaign
 
-This remains an unfinished remake. Completed machine builds now show unit artwork
-in the queue and deploy a unit above the allied base. Units advance toward the enemy base at a
-provisional shared speed of 64 pixels per second and stop before it. Combat and
-mission completion remain unimplemented. Intro and gameplay music loop, and the
-mission music slider controls playback volume. Sound effects are not implemented;
-the repository currently only supplies music tracks. Turret construction also
-still contains upstream placeholders.
+The desktop version now supports the complete mission loop: build machines,
+advance toward the enemy, engage units, destroy the enemy base, and unlock the
+next mission. It includes enemy waves, defensive cannons, unit health and
+projectiles, victory/defeat dialogs, saved rewards, retry/next-mission controls,
+machine/turret upgrades and equipment, special attacks, and music/sound effects.
+All 80 maps are available through campaign progression.
 
-## Verifying machine deployment
+Mission entry uses a progress screen with timeout/error handling. Shared assets
+remain loaded across mission changes, and a new mission resets pause state.
+
+Combat balance and enemy waves are new to this remake; the exact original iOS
+balance, scripted enemy placements, and animations are not reproduced. Desktop
+is the supported playable target; mobile packaging remains unfinished.
+
+## Verification
 
 With Java 11 selected in `JAVA_HOME`, run:
 
 ```sh
-./gradlew :desktop:verifyMachineSpawning
+./gradlew :desktop:verifyBattleSimulation :desktop:verifyMachineSpawning :desktop:dist
 ```
 
-This graphics smoke test requires a desktop session. It uses a hidden window,
-real first-mission assets, and an in-memory save; it does not read or modify player
-saves. It checks queue artwork, single and simultaneous completions, pause/stop
-behavior, visible deployment positions, shared sprite consistency, frame-rate-independent movement, pause/resume,
-destination stopping, music playback, and volume controls.
+The deterministic simulation test covers targeting, movement at 30/60/120 FPS,
+mutual combat, damage/deaths, kill rewards, turrets, EMP, pause, victory/defeat,
+progression, replay rewards, and later-stage strategies using the shipping build
+costs and times.
+
+The graphics test requires a desktop session. It uses a hidden window and an
+isolated temporary preferences directory; player saves are not read or modified.
+It follows the fresh-launch menu path, clicks real build controls, wins a mission,
+checks saved rewards, enters the next mission, buys/uses a special, loses, retries,
+returns through the menus, verifies sound playback/volume, and loads all 80 maps
+and every available machine/turret sprite. Optional framebuffer captures can be
+written with `-PsmokeCaptureDir=/absolute/output/directory`.
 
 ## Gameplay
 
