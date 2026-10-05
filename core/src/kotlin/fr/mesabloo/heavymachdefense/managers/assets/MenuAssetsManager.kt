@@ -14,9 +14,9 @@ class MenuAssetsManager : Disposable {
     }
 
     fun preload() {
-        assetManager.load<Texture>(BACKGROUND)
+        if (!assetManager.isLoaded(BACKGROUND)) assetManager.load<Texture>(BACKGROUND)
 
-        assetManager.load<TextureAtlas>(SLOT)
+        if (!assetManager.isLoaded(SLOT)) assetManager.load<TextureAtlas>(SLOT)
     }
 
     fun getSlot(isSelected: Boolean): TextureRegion =
@@ -27,10 +27,8 @@ class MenuAssetsManager : Disposable {
 
     fun isFullyLoaded(): Boolean = listOf(BACKGROUND, SLOT).all { assetManager.isLoaded(it) }
 
-    override fun dispose() {
-        assetManager.unload(BACKGROUND)
-        assetManager.unload(SLOT)
-    }
+    override fun dispose() = Unit // Shared assets are released by MainGame.
+
 }
 
 val menuAssetsManager by lazy { MenuAssetsManager() }

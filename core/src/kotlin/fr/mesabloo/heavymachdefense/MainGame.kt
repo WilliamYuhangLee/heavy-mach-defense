@@ -56,7 +56,9 @@ class MainGame : KtxGame<AbstractScreen>() {
         Gdx.gl.glClearColor(1f, 1f, 1f, 0f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
 
-        assetManager.update()
+        if (currentScreen !is fr.mesabloo.heavymachdefense.screens.MissionLoadingScreen) {
+            assetManager.update()
+        }
         backgroundMusicManager.update()
 
         if (this.justStarted && debugAssetsManager.isFullyLoaded() && startAssetsManager.isFullyLoaded()
@@ -79,6 +81,22 @@ class MainGame : KtxGame<AbstractScreen>() {
             this.getScreen()
         } else null
 
+    /** Used for retry/next/mission-select, where the new screen may have the same class. */
+    fun replaceScreen(next: AbstractScreen) {
+        val previous = currentScreen as? AbstractScreen
+        screens.remove(next.javaClass)?.takeIf { it !== previous }?.dispose()
+        if (previous != null) {
+            screens.remove(previous.javaClass)
+            previous.hide()
+            previous.dispose()
+        }
+        screens.put(next.javaClass, next)
+        currentScreen = next
+        next.show()
+        next.resize(Gdx.graphics.width, Gdx.graphics.height)
+        next.resume()
+    }
+
     override fun resize(width: Int, height: Int) {
         Gdx.app.debug(this.javaClass.simpleName, "Resizing window to ${width}x${height}")
 
@@ -95,5 +113,6 @@ class MainGame : KtxGame<AbstractScreen>() {
         fontManager.dispose()
 
         backgroundMusicManager.dispose()
+        fr.mesabloo.heavymachdefense.managers.soundEffectManager.dispose()
     }
 }

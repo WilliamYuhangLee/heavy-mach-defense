@@ -146,17 +146,25 @@ class MachineBuildSlot(
     }
 }
 
-class TurretBuildSlot(
-    slot: TurretSlot,
-    save: GameSave,
-    builds: Builds,
-    cellCounter: KProperty0<Long>,
-    queue: BuildQueue
-) :
-    BuildSlot(cellCounter, queue, 1) {
-    override fun updateBuildingNumber() {
-        TODO("Not yet implemented")
+class TurretBuildSlot(slot: TurretSlot, save: GameSave, builds: Builds,
+    cellCounter: KProperty0<Long>, queue: BuildQueue) : BuildSlot(cellCounter,queue,1) {
+    val kind = slot.kind
+    val level = (save.turretUpgrades[kind] ?: 1).coerceIn(1,5)
+    init {
+        cellCost = builds.turrets[kind to level]?.cellCost ?: 200
+        addActor(fr.mesabloo.heavymachdefense.ui.stage.Turret(kind,level).also {
+            it.setScale(0.7f); it.setPosition(12f,0f); it.touchable = Touchable.disabled
+        })
+        addActor(Label("${kind.turretName} turret",Label.LabelStyle(
+            fontManager.bitmapFonts[FontManager.TREBUCHET_MS_BOLD_11_WHITE],Color.WHITE)).also {
+            it.setPosition(0f,-17f); it.touchable = Touchable.disabled
+        })
+        addActor(Label(cellCost.toString(),Label.LabelStyle(
+            fontManager.bitmapFonts[FontManager.TREBUCHET_MS_BOLD_12_WHITE],Color.WHITE)).also {
+            it.setPosition(-28f,51f); it.touchable = Touchable.disabled
+        })
     }
+    override fun updateBuildingNumber() { building = queue.getNumberOf(kind) }
 }
 
 class SpecialBuildSlot(
@@ -245,7 +253,8 @@ class SpecialBuildSlot(
     }
 
     override fun act(delta: Float) {
-        this.isDisabled = this.counter.textEquals("0")
+        this.counter.setText((save.specialCount[slot.kind] ?: 0).toString())
+        this.isDisabled = (save.specialCount[slot.kind] ?: 0) <= 0
         this.cover.zIndex = if (this.isDisabled) 50000000 else 0
 
         this.updateSlot()

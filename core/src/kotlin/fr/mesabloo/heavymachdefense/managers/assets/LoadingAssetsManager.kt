@@ -15,24 +15,18 @@ class LoadingAssetsManager : Disposable {
     }
 
     fun preload() {
-        assetManager.load<Texture>(LOADING_BOTTOM)
-        assetManager.load<Texture>(LOADING_TOP)
-        assetManager.load<Texture>(LOADING_LEFT)
-        assetManager.load<Texture>(LOADING_RIGHT)
-        assetManager.load<Texture>(LOADING_CENTER)
+        if (!assetManager.isLoaded(LOADING_BOTTOM)) assetManager.load<Texture>(LOADING_BOTTOM)
+        if (!assetManager.isLoaded(LOADING_TOP)) assetManager.load<Texture>(LOADING_TOP)
+        if (!assetManager.isLoaded(LOADING_LEFT)) assetManager.load<Texture>(LOADING_LEFT)
+        if (!assetManager.isLoaded(LOADING_RIGHT)) assetManager.load<Texture>(LOADING_RIGHT)
+        if (!assetManager.isLoaded(LOADING_CENTER)) assetManager.load<Texture>(LOADING_CENTER)
     }
 
     fun isFullyLoaded(): Boolean =
         listOf(LOADING_BOTTOM, LOADING_RIGHT, LOADING_LEFT, LOADING_CENTER, LOADING_TOP)
             .all { assetManager.isLoaded(it) }
 
-    override fun dispose() {
-        assetManager.unload(LOADING_BOTTOM)
-        assetManager.unload(LOADING_TOP)
-        assetManager.unload(LOADING_LEFT)
-        assetManager.unload(LOADING_RIGHT)
-        assetManager.unload(LOADING_CENTER)
-    }
+    override fun dispose() = Unit // Shared assets are released by MainGame.
 
     fun texture(name: String): TextureRegion = TextureRegion(assetManager.get<Texture>(name))
 }

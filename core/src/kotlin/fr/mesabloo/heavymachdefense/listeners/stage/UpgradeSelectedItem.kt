@@ -50,7 +50,7 @@ class UpgradeSelectedItem(
             // just stop
             //
             // Same applies when the currentLevel is the maxLevel
-            if (upgradeCost == 0L || currentLevel == maxLevel)
+            if (upgradeCost == 0L || currentLevel == maxLevel || save.credits < upgradeCost)
                 return
 
             this.save.credits -= upgradeCost
@@ -59,8 +59,8 @@ class UpgradeSelectedItem(
             selected.level = Pair(nextLevel.toLong(), maxLevel.toLong())
             when (selected.kind) {
                 UpgradeKind.BASE_CANNON -> {
-                    val currentAtk = this.upgrades.base_cannon[nextLevel - 1].attack
-                    val nextAtk = this.upgrades.base_cannon[nextLevel.coerceIn(0 until maxLevel)].attack
+                    val currentAtk = fr.mesabloo.heavymachdefense.gameplay.CombatBalance.baseCannonDamage(nextLevel).toLong()
+                    val nextAtk = fr.mesabloo.heavymachdefense.gameplay.CombatBalance.baseCannonDamage(nextLevel + 1).toLong()
 
                     selected.price = this.upgrades.base_cannon[nextLevel - 1].cost
                     selected.addition = Triple("ATK.", currentAtk, nextAtk - currentAtk)

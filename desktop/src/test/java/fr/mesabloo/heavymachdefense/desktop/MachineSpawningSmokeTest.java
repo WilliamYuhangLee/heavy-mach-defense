@@ -1,173 +1,343 @@
 package fr.mesabloo.heavymachdefense.desktop;
 
 import com.badlogic.gdx.*;
-import com.badlogic.gdx.backends.lwjgl3.*;
-import com.badlogic.gdx.physics.box2d.*;
-import com.badlogic.gdx.scenes.scene2d.*;
-import com.badlogic.gdx.scenes.scene2d.ui.Label;
-import com.badlogic.gdx.scenes.scene2d.ui.Slider;
 import com.badlogic.gdx.audio.Music;
-import fr.mesabloo.heavymachdefense.managers.SoundManagerKt;
-import fr.mesabloo.heavymachdefense.managers.BackgroundMusicManager;
-import fr.mesabloo.heavymachdefense.screens.StartScreen;
-import com.badlogic.gdx.graphics.g2d.TextureRegion;
-import com.badlogic.gdx.utils.Array;
+import com.badlogic.gdx.backends.lwjgl3.*;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.PixmapIO;
+import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.scenes.scene2d.*;
+import com.badlogic.gdx.scenes.scene2d.ui.*;
+import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.utils.ScreenUtils;
 import fr.mesabloo.heavymachdefense.MainGame;
 import fr.mesabloo.heavymachdefense.data.*;
+import fr.mesabloo.heavymachdefense.gameplay.*;
+import fr.mesabloo.heavymachdefense.listeners.start.StartOnClick;
+import fr.mesabloo.heavymachdefense.listeners.saves.SelectOrLoadSave;
+import fr.mesabloo.heavymachdefense.listeners.stage_selection.LoadStage;
+import fr.mesabloo.heavymachdefense.managers.*;
 import fr.mesabloo.heavymachdefense.managers.assets.*;
-import fr.mesabloo.heavymachdefense.screens.StageScreen;
+import fr.mesabloo.heavymachdefense.screens.*;
 import fr.mesabloo.heavymachdefense.timers.TimersKt;
 import fr.mesabloo.heavymachdefense.ui.stage.*;
-import fr.mesabloo.heavymachdefense.world.GameWorld;
+import fr.mesabloo.heavymachdefense.ui.stage.buttons.*;
+import fr.mesabloo.heavymachdefense.ui.stage.slots.*;
 import kotlinx.serialization.json.Json;
 import java.lang.reflect.Field;
-import java.util.HashSet;
+import java.nio.file.Files;
 
+/** Real OpenGL/audio/menu integration. Player preferences are isolated in a temporary directory. */
 public class MachineSpawningSmokeTest extends ApplicationAdapter {
+    private MainGame game;
+    private GameSave save;
+    private int phase;
+    private long phaseStarted;
+    private StageScreen previousMission;
+    private Music music;
+    private boolean combatCaptured;
+    private int campaignMap = 3;
+
     static Object field(Object o, String name) throws Exception {
-        Field f = o.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(o);
+        Field f = o.getClass().getDeclaredField(name);
+        f.setAccessible(true);
+        return f.get(o);
     }
-    static void check(boolean b, String message) { if (!b) throw new AssertionError(message); }
-    static int machines(GameWorld world) {
-        Array<Body> bodies = new Array<>(); world.getWorld().getBodies(bodies);
-        int n = 0; for (Body b : bodies) if (b.getUserData() instanceof Machine) n++; return n;
+
+    static void check(boolean condition, String message) {
+        if (!condition) throw new AssertionError(message);
     }
-    static boolean hasTodo(Actor a) {
-        if (a instanceof Label && ((Label)a).getText().toString().contains("TODO")) return true;
-        if (a instanceof Group) for (Actor child : ((Group)a).getChildren()) if (hasTodo(child)) return true;
-        return false;
-    }
-    Music playbackCheck;
-    float playbackElapsed;
-    static Slider firstSlider(Group group) {
-        for (Actor actor : group.getChildren()) {
-            if (actor instanceof Slider) return (Slider)actor;
-            if (actor instanceof Group) {
-                Slider slider = firstSlider((Group)actor);
-                if (slider != null) return slider;
-            }
+
+    static <T extends Actor> T find(Actor root, Class<T> type) {
+        if (type.isInstance(root)) return type.cast(root);
+        if (root instanceof Group) for (Actor child : ((Group) root).getChildren()) {
+            T found = find(child, type);
+            if (found != null) return found;
         }
         return null;
     }
+
+    static TextButton button(Actor root, String prefix) {
+        if (root instanceof TextButton && ((TextButton) root).getText().toString().startsWith(prefix))
+            return (TextButton) root;
+        if (root instanceof Group) for (Actor child : ((Group) root).getChildren()) {
+            TextButton found = button(child, prefix);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    static boolean hasTodo(Actor root) {
+        if (root instanceof Label && ((Label) root).getText().toString().contains("TODO")) return true;
+        if (root instanceof Group) for (Actor child : ((Group) root).getChildren())
+            if (hasTodo(child)) return true;
+        return false;
+    }
+
+    // Use the same input pipeline as a mouse, including hit testing and modal/input blockers.
+    static void click(Actor actor) {
+        check(actor != null && actor.getStage() != null, "Expected an attached, clickable control");
+        if (actor instanceof com.badlogic.gdx.scenes.scene2d.utils.Layout)
+            ((com.badlogic.gdx.scenes.scene2d.utils.Layout) actor).validate();
+        Stage stage = actor.getStage();
+        Vector2 point = actor.localToStageCoordinates(new Vector2(actor.getWidth() / 2f, actor.getHeight() / 2f));
+        Actor hit = stage.hit(point.x, point.y, true);
+        check(hit != null && (hit == actor || hit.isDescendantOf(actor)),
+            "Control blocked at " + point + ": " + actor + "; hit=" + hit);
+        stage.stageToScreenCoordinates(point);
+        check(Gdx.input.getInputProcessor() != null, "Input must be enabled");
+        Gdx.input.getInputProcessor().touchDown(Math.round(point.x), Math.round(point.y), 0, Input.Buttons.LEFT);
+        Gdx.input.getInputProcessor().touchUp(Math.round(point.x), Math.round(point.y), 0, Input.Buttons.LEFT);
+    }
+
+    void next(int nextPhase, String message) {
+        phase = nextPhase;
+        phaseStarted = System.nanoTime();
+        System.out.println(message);
+    }
+
+    void capture(String name) {
+        String dir = System.getProperty("hm.smoke.capture");
+        if (dir == null) return;
+        Pixmap pixmap = ScreenUtils.getFrameBufferPixmap(0, 0,
+            Gdx.graphics.getBackBufferWidth(), Gdx.graphics.getBackBufferHeight());
+        PixmapIO.PNG writer = new PixmapIO.PNG();
+        try {
+            writer.setFlipY(true);
+            writer.write(Gdx.files.absolute(dir + "/" + name + ".png"), pixmap);
+        } catch (Exception e) { throw new RuntimeException(e); }
+        finally { writer.dispose(); pixmap.dispose(); }
+    }
+
+    @Override public void create() {
+        game = new MainGame();
+        game.create();
+        phaseStarted = System.nanoTime();
+    }
+
+    @Override public void resize(int w, int h) { if (game != null) game.resize(w, h); }
+
     @Override public void render() {
-        if (playbackCheck == null) return;
-        playbackElapsed += Gdx.graphics.getDeltaTime();
-        if (playbackElapsed >= 0.5f) {
-            check(playbackCheck.isPlaying() && playbackCheck.getPosition() > 0f,
-                "Audio stream must be playing and advance through the track");
-            System.out.println("PASS: music stream playback and return-to-title reuse.");
-            Gdx.app.exit();
+        try {
+            game.render();
+            Screen current = game.getAccess$currentScreen();
+            if (!(current instanceof AbstractScreen)) return;
+            AbstractScreen screen = (AbstractScreen) current;
+            if ((System.nanoTime() - phaseStarted) / 1e9 > 20)
+                throw new AssertionError("Timed out in phase " + phase + " on " + screen.getClass().getSimpleName());
+            if (screen.isLoading() || screen instanceof MissionLoadingScreen) return;
+
+            switch (phase) {
+                case 0:
+                    if (!(screen instanceof StartScreen)) return;
+                    new StartOnClick((StartScreen) screen).clicked(null, 0, 0);
+                    next(1, "Title -> save selection");
+                    break;
+                case 1:
+                    if (!(screen instanceof SavesSelectionScreen)) return;
+                    save = Json.Default.decodeFromString(GameSave.Companion.serializer(),
+                        "{\"creationDate\":0,\"lastAccessedDate\":0}");
+                    SavesSelectionScreen saves = (SavesSelectionScreen) screen;
+                    saves.addSave(save);
+                    new SelectOrLoadSave(saves, 0, saves.getBackground(), save).clicked(null, 0, 0);
+                    next(2, "Save selection -> mission selection");
+                    break;
+                case 2:
+                    if (!(screen instanceof StageSelectionScreen)) return;
+                    new LoadStage((StageSelectionScreen) screen).clicked(null, 0, 0);
+                    new LoadStage((StageSelectionScreen) screen).clicked(null, 0, 0);
+                    next(3, "Mission selection -> first mission (also guarding duplicate clicks)");
+                    break;
+                case 3: {
+                    if (!(screen instanceof StageScreen)) return;
+                    StageScreen mission = (StageScreen) screen;
+                    music = SoundManagerKt.getBackgroundMusicManager().load(BackgroundMusicManager.GAMEPLAY);
+                    check(music.isPlaying() && music.isLooping(), "Mission must start looping music");
+                    Slider volume = find((Actor) field(mission, "systemMenu"), Slider.class);
+                    volume.setValue(0.2f);
+                    check(Math.abs(music.getVolume() - 0.2f) < 0.001f, "Live music volume");
+                    volume.setValue(0f);
+                    check(music.getVolume() == 0f, "Mute music");
+                    volume.setValue(0.6f);
+                    boolean flipped = StageAssetsManagerKt.getStageAssetsManager()
+                        .unsafeRegion(StageAssetsManager.MACHINE_WEAPONS, "rifle-01").isFlipY();
+                    for (MachineKind kind : MachineKind.values()) for (int level = 1; level <= 10; level++)
+                        new Machine(kind, level);
+                    for (TurretKind kind : TurretKind.values()) for (int level = 1; level <= 5; level++)
+                        new Turret(kind, level);
+                    check(flipped == StageAssetsManagerKt.getStageAssetsManager()
+                        .unsafeRegion(StageAssetsManager.MACHINE_WEAPONS, "rifle-01").isFlipY(), "Shared sprites must not flip");
+                    BuildQueue queue = (BuildQueue) field(mission, "buildQueue");
+                    MachineBuildSlot rifle = find(screen.getBackground(), MachineBuildSlot.class);
+                    long cells = (Long) field(mission, "currentCells");
+                    click(rifle);
+                    check(queue.getNumberOf(MachineKind.RIFLE) == 1, "Actual rifle click must enqueue");
+                    check((Long) field(mission, "currentCells") == cells - 60, "Exactly one build charge");
+                    check(!hasTodo(queue), "Queue must contain artwork");
+                    mission.render(0.2f); mission.render(0.2f); mission.render(0.2f); capture("mission-build");
+                    TimersKt.getCellMiningTimer().pause();
+                    float pausedTime = mission.getGameWorld().getBattle().getElapsed();
+                    long pausedCells = (Long) field(mission, "currentCells");
+                    for (int i = 0; i < 20; i++) mission.render(0.25f);
+                    check(queue.getNumberOf(MachineKind.RIFLE) == 1 && mission.getGameWorld().getBattle().getUnits().isEmpty(), "Paused queue must not deploy");
+                    check(mission.getGameWorld().getBattle().getElapsed() == pausedTime
+                        && (Long) field(mission, "currentCells") == pausedCells, "Pause must freeze battle and economy");
+                    TimersKt.getCellMiningTimer().resume();
+                    mission.pause();
+                    check(!music.isPlaying(), "Application pause must pause music");
+                    mission.render(0.25f);
+                    check(mission.getGameWorld().getBattle().getElapsed() == pausedTime, "Application pause freezes battle");
+                    mission.resume();
+                    for (int i = 0; i < 34; i++) mission.render(0.1f);
+                    check(queue.getNumberOf(MachineKind.RIFLE) == 0
+                        && mission.getGameWorld().getBattle().getUnits().size() == 1, "One build deploys exactly once");
+                    check(mission.getGameWorld().getBattle().getUnits().get(0).getY() > 208f, "Built rifle must advance");
+                    next(4, "PASS: fresh launch, real build input, all 80 machine/30 turret sprites, deployment, pause/economy, audio controls");
+                    break;
+                }
+                case 4: {
+                    StageScreen mission = (StageScreen) screen;
+                    Battle battle = mission.getGameWorld().getBattle();
+                    BuildQueue queue = (BuildQueue) field(mission, "buildQueue");
+                    for (int i = 0; i < 20 && battle.getResult() == BattleResult.RUNNING; i++) {
+                        if (queue.getNumberOf(MachineKind.RIFLE) == 0 && (Long) field(mission, "currentCells") >= 60)
+                            click(find(screen.getBackground(), MachineBuildSlot.class));
+                        mission.render(0.1f);
+                    }
+                    if (!combatCaptured && battle.getElapsed() >= 20f) {
+                        ScrollPane terrain = find(screen.getBackground(), ScrollPane.class);
+                        terrain.setScrollY(600f); terrain.updateVisualScroll();
+                        mission.render(0f); capture("mission-combat"); combatCaptured = true;
+                    }
+                    check(battle.getElapsed() < 180f, "Rifle strategy should finish mission 1");
+                    if (battle.getResult() == BattleResult.RUNNING) return;
+                    check(battle.getResult() == BattleResult.VICTORY && battle.getDefeatedEnemies() > 0, "Units must fight and destroy enemy base");
+                    check(music.isPlaying() && music.getPosition() > 0f, "Actual music stream must advance");
+                    GameSave persisted = Json.Default.decodeFromString(GameSave.Companion.serializer(),
+                        Gdx.app.getPreferences(GameSave.PREFERENCES_PATH).getString("0"));
+                    check(persisted.getLastStageCompleted() == 1 && persisted.getCredits() > 0, "Victory must persist progression/rewards");
+                    mission.render(0f); capture("mission-victory");
+                    previousMission = mission;
+                    click(button(screen.getUi().getRoot(), "Next mission"));
+                    next(5, "PASS: live mission combat, enemy kills, victory, persisted rewards, Next mission input");
+                    break;
+                }
+                case 5: {
+                    if (!(screen instanceof StageScreen) || screen == previousMission) return;
+                    StageScreen mission = (StageScreen) screen;
+                    check(mission.getGameWorld().getBattle().getLevel() == 2, "Next mission must load stage 2");
+                    check(!TimersKt.getCellMiningTimer().isPaused(), "New mission must clear prior result pause");
+                    click(find(screen.getBackground(), SpecialAttackMenuButton.class));
+                    mission.render(0.1f);
+                    SpecialBuildSlot special = find(screen.getBackground(), SpecialBuildSlot.class);
+                    check(!special.isDisabled(), "Victory special charge must enable its slot");
+                    click(special);
+                    // Coordinates are local to the actual terrain target listener.
+                    Terrain terrain = (Terrain) field(mission, "terrain");
+                    for (EventListener listener : terrain.getListeners()) if (listener instanceof ClickListener)
+                        ((ClickListener) listener).clicked(null, 256f, 1840f);
+                    mission.render(0f);
+                    check(save.getSpecialCount().get(SpecialKind.AIRSTRIKE_BOMB) == 0 && special.isDisabled(), "Using special must consume and disable last charge");
+                    click(find(screen.getBackground(), UpgradeEquipment.class));
+                    next(6, "PASS: next mission, pause reset, special targeting/charge counter");
+                    break;
+                }
+                case 6:
+                    check(TimersKt.getCellMiningTimer().isPaused(), "Workshop must pause battle");
+                    click(button(screen.getUi().getRoot(), "AIRSTRIKE BOMB"));
+                    next(7, "Buying a special charge through the workshop");
+                    break;
+                case 7:
+                    if (button(screen.getUi().getRoot(), "Back to battle") == null) return;
+                    check(save.getSpecialCount().get(SpecialKind.AIRSTRIKE_BOMB) == 1, "Workshop purchase must add a charge");
+                    click(button(screen.getUi().getRoot(), "Back to battle"));
+                    next(8, "Returning to battle");
+                    break;
+                case 8: {
+                    if (TimersKt.getCellMiningTimer().isPaused()) return;
+                    StageScreen mission = (StageScreen) screen;
+                    Battle battle = mission.getGameWorld().getBattle();
+                    check(!find(screen.getBackground(), SpecialBuildSlot.class).isDisabled(), "Purchased charge must refresh the slot");
+                    for (int i = 0; i < 30 && battle.getResult() == BattleResult.RUNNING; i++) mission.render(0.25f);
+                    if (battle.getResult() == BattleResult.RUNNING) return;
+                    check(battle.getResult() == BattleResult.DEFEAT, "Idle player must lose");
+                    check(save.getLastStageCompleted() == 1, "Defeat must not unlock a stage");
+                    previousMission = mission;
+                    click(button(screen.getUi().getRoot(), "Retry mission"));
+                    next(9, "PASS: workshop purchase, refreshed special button, defeat, Retry input");
+                    break;
+                }
+                case 9: {
+                    if (!(screen instanceof StageScreen) || screen == previousMission) return;
+                    StageScreen mission = (StageScreen) screen;
+                    check(mission.getGameWorld().getBattle().getLevel() == 2 && !TimersKt.getCellMiningTimer().isPaused(), "Retry must create a running battle");
+                    click(find(screen.getBackground(), MenuButton.class));
+                    click(button(screen.getUi().getRoot(), "Save & Mission Select"));
+                    next(10, "Retry -> menu -> mission select");
+                    break;
+                }
+                case 10:
+                    if (!(screen instanceof StageSelectionScreen)) return;
+                    check(!music.isPlaying(), "Leaving battle must stop its track");
+                    // Check every campaign terrain through the real loading/screen lifecycle.
+                    ((StageSelectionScreen) screen).getSave().setLastStageCompleted(79);
+                    ((StageSelectionScreen) screen).beginMission(campaignMap - 1);
+                    next(11, "PASS: retry, menu exit, music lifecycle. Checking campaign maps.");
+                    break;
+                case 11: {
+                    if (!(screen instanceof StageScreen) || screen == previousMission) return;
+                    StageScreen mission = (StageScreen) screen;
+                    check(mission.getGameWorld().getBattle().getLevel() == campaignMap, "Campaign map mismatch");
+                    if (campaignMap == 3) {
+                        for (MachineKind kind : MachineKind.values())
+                            mission.getGameWorld().getBattle().spawn(kind, 7, Team.ENEMY, null, 200f, 1800f);
+                        mission.render(0.1f);
+                    }
+                    previousMission = mission;
+                    if (++campaignMap <= 80) {
+                        mission.openMission(campaignMap);
+                        phaseStarted = System.nanoTime();
+                    } else {
+                        System.out.println("PASS: all 80 mission assets and repeated loading/disposal; graphics integration complete.");
+                        mission.saveAndExit();
+                        next(12, "Checking return to title");
+                    }
+                    break;
+                }
+                case 12:
+                    if (!(screen instanceof StageSelectionScreen)) return;
+                    click(find(screen.getBackground(), fr.mesabloo.heavymachdefense.ui.common.BackButton.class));
+                    next(13, "Mission select -> saves");
+                    break;
+                case 13:
+                    if (!(screen instanceof SavesSelectionScreen)) return;
+                    click(find(screen.getBackground(), fr.mesabloo.heavymachdefense.ui.common.BackButton.class));
+                    next(14, "Saves -> title");
+                    break;
+                case 14:
+                    if (!(screen instanceof StartScreen)) return;
+                    check(SoundManagerKt.getBackgroundMusicManager().load(BackgroundMusicManager.INTRO).isPlaying(),
+                        "Return to title must resume intro music");
+                    System.out.println("PASS: full menu return and shared asset/audio lifetime.");
+                    Gdx.app.exit();
+                    break;
+            }
+        } catch (Throwable failure) {
+            failure.printStackTrace();
+            System.exit(1);
         }
     }
-    @Override public void create() {
-        try {
-            MainGame game = new MainGame(); game.create();
-            StageAssetsManagerKt.getStageAssetsManager().preload(1);
-            ButtonAssetsManagerKt.getButtonAssetsManager().preload();
-            ManagerKt.getAssetManager().finishLoading();
-            while (!SoundManagerKt.getBackgroundMusicManager().isFullyLoaded())
-                SoundManagerKt.getBackgroundMusicManager().update();
-            GameSave save = Json.Default.decodeFromString(GameSave.Companion.serializer(),
-                "{\"creationDate\":0,\"lastAccessedDate\":0}");
-            StageScreen screen = new StageScreen(game, 1, save, -1, false);
-            screen.show();
-            Music music = SoundManagerKt.getBackgroundMusicManager().load(BackgroundMusicManager.GAMEPLAY);
-            check(music.isPlaying() && music.isLooping(), "Entering a mission must start looping gameplay music");
-            Slider musicSlider = firstSlider((Group)field(screen, "systemMenu"));
-            check(musicSlider != null, "Mission must have a music volume slider");
-            musicSlider.setValue(0.2f);
-            check(Math.abs(music.getVolume() - 0.2f) < 0.001f, "Slider must control actual music volume");
-            musicSlider.setValue(0f);
-            check(music.getVolume() == 0f, "Slider must mute music");
-            musicSlider.setValue(0.6f);
-            BuildQueue queue = (BuildQueue)field(screen, "buildQueue");
-            Builds builds = (Builds)field(screen, "builds");
-            GameWorld world = (GameWorld)field(screen, "gameWorld");
-            Terrain terrain = (Terrain)field(screen, "terrain");
-            TextureRegion region = StageAssetsManagerKt.getStageAssetsManager().unsafeRegion(
-                StageAssetsManager.MACHINE_WEAPONS, "rifle-01");
-            boolean flip = region.isFlipY();
-            check(machines(world) == 0, "New mission must start with no deployed machines");
-            queue.build(new BuildMachineItem(MachineKind.RIFLE, 1, builds));
-            check(!hasTodo(queue), "Queue must show unit artwork, not TODO");
-            TimersKt.getCellMiningTimer().pause();
-            queue.act(100f);
-            check(machines(world) == 0 && queue.getNumberOf(MachineKind.RIFLE) == 1,
-                "Paused queue must not complete or deploy");
-            TimersKt.getCellMiningTimer().resume();
-            queue.act(100f);
-            check(machines(world) == 1 && queue.getNumberOf(MachineKind.RIFLE) == 0,
-                "One completed rifle must produce exactly one body");
-            queue.act(100f);
-            check(machines(world) == 1, "Completed item must not deploy again");
-            for (int i = 0; i < 6; i++) queue.build(new BuildMachineItem(MachineKind.RIFLE, 1, builds));
-            TimersKt.getCellMiningTimer().stop();
-            queue.act(100f);
-            check(machines(world) == 1, "Stopped queue must not deploy");
-            TimersKt.getCellMiningTimer().start();
-            queue.act(100f);
-            check(machines(world) == 7 && queue.getNumberOf(MachineKind.RIFLE) == 0,
-                "Simultaneous completions must not skip or duplicate units");
-            check(region.isFlipY() == flip, "Repeated previews/spawns must not mutate shared artwork");
-            Array<Body> bodies = new Array<>(); world.getWorld().getBodies(bodies);
-            HashSet<String> positions = new HashSet<>();
-            for (Body b : bodies) if (b.getUserData() instanceof Machine) {
-                Machine m = (Machine)b.getUserData();
-                check(m.getParent() == terrain, "Spawn must attach a visible terrain actor");
-                check(m.getX() >= 0 && m.getY() >= 144 && m.getX() + m.getWidth() <= 512
-                    && m.getY() + m.getHeight() <= 844, "Initial deployments must be visible above allied base");
-                check(positions.add(b.getPosition().toString()), "Deployments must have separate positions");
-            }
-            Body moving = null;
-            for (Body b : bodies) if (b.getUserData() instanceof Machine) { moving = b; break; }
-            float originX = moving.getPosition().x, originY = moving.getPosition().y;
-            float displacement = 0f;
-            for (int fps : new int[]{30, 60, 120}) {
-                moving.setTransform(originX, originY, 0f);
-                for (int frame = 0; frame < fps; frame++) world.render(1f / fps);
-                float distance = moving.getPosition().y - originY;
-                check(distance > 0f, "Unit must advance toward enemy base");
-                if (displacement > 0f) check(Math.abs(distance - displacement) < 0.001f,
-                    "Movement must be consistent at 30/60/120 FPS");
-                displacement = distance;
-            }
-            TimersKt.getCellMiningTimer().pause();
-            float pausedY = moving.getPosition().y;
-            world.render(0.1f);
-            check(moving.getPosition().y == pausedY, "Paused mission must freeze movement");
-            TimersKt.getCellMiningTimer().resume();
-            screen.pause();
-            check(!music.isPlaying(), "Application pause must pause music");
-            world.render(0.1f);
-            check(moving.getPosition().y == pausedY, "Stopped mission must freeze movement");
-            screen.resume();
-            check(music.isPlaying(), "Application resume must resume music");
-            world.render(0.1f);
-            check(moving.getPosition().y > pausedY, "Movement must resume");
-            for (int frame = 0; frame < 3600; frame++) world.render(1f / 60f);
-            float arrivalY = moving.getPosition().y;
-            world.render(0.1f);
-            check(Math.abs(moving.getPosition().y - arrivalY) < 0.001f && arrivalY > originY,
-                "Units must stop before enemy base instead of leaving battlefield");
-            screen.render(1f / 60f);
-            screen.hide();
-            check(!music.isPlaying(), "Leaving mission must stop gameplay track");
-            StartScreen title = new StartScreen(game, false);
-            title.show();
-            title.dispose();
-            StartAssetsManagerKt.getStartAssetsManager().preload();
-            ManagerKt.getAssetManager().finishLoading();
-            new StartScreen(game, false).show();
-            playbackCheck = SoundManagerKt.getBackgroundMusicManager().load(BackgroundMusicManager.INTRO);
-            System.out.println("PASS: unit advancement, 30/60/120 FPS, pause/resume, destination stop, gameplay music, live volume/mute, music lifecycle.");
-            System.out.println("PASS: first-mission spawn, queue artwork, exactly-once completion, pause/stop, six simultaneous completions, deployment positions, shared textures, render.");
-            TimersKt.getCellMiningTimer().clear();
-        } catch (Throwable t) { t.printStackTrace(); System.exit(1); }
-    }
-    public static void main(String[] args) {
+
+    @Override public void dispose() { if (game != null) game.dispose(); }
+
+    public static void main(String[] args) throws Exception {
         Lwjgl3ApplicationConfiguration config = new Lwjgl3ApplicationConfiguration();
-        config.setInitialVisible(false); config.setWindowedMode(768, 1024);
-        config.setTitle("HM Defense spawn verification");
+        config.setInitialVisible(false);
+        config.setWindowPosition(0, 0); // Hidden tests do not need a primary monitor for centering.
+        config.setWindowedMode(768, 1024);
+        config.setForegroundFPS(60);
+        config.setTitle("HM Defense gameplay verification");
+        config.setPreferencesConfig(Files.createTempDirectory("hm-defense-test-").toString(), com.badlogic.gdx.Files.FileType.Absolute);
         new Lwjgl3Application(new MachineSpawningSmokeTest(), config);
     }
 }

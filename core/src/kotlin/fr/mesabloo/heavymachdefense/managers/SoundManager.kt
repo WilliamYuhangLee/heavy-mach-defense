@@ -62,7 +62,21 @@ class BackgroundMusicManager : Disposable {
 val backgroundMusicManager by lazy { BackgroundMusicManager() }
 
 class SoundEffectManager : Disposable {
+    private val shot = lazy { com.badlogic.gdx.Gdx.audio.newSound(com.badlogic.gdx.Gdx.files.internal("sfx/gameplay/shot.wav")) }
+    private val explosion = lazy { com.badlogic.gdx.Gdx.audio.newSound(com.badlogic.gdx.Gdx.files.internal("sfx/gameplay/explosion.wav")) }
+
+    fun playShot(volume: Float) {
+        if (volume > 0f) shot.value.play(volume.coerceIn(0f, 1f) * 0.25f)
+    }
+
+    fun playExplosion(volume: Float) {
+        if (volume > 0f) explosion.value.play(volume.coerceIn(0f, 1f) * 0.4f)
+    }
+
     override fun dispose() {
-        TODO("Not yet implemented")
+        if (shot.isInitialized()) shot.value.dispose()
+        if (explosion.isInitialized()) explosion.value.dispose()
     }
 }
+
+val soundEffectManager by lazy { SoundEffectManager() }

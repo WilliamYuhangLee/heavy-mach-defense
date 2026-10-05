@@ -12,7 +12,7 @@ class ButtonAssetsManager : Disposable {
     }
 
     fun preload() {
-        assetManager.load<TextureAtlas>(BUTTONS)
+        if (!assetManager.isLoaded(BUTTONS)) assetManager.load<TextureAtlas>(BUTTONS)
     }
 
     fun texture(button: Button, isSelected: Boolean): TextureRegion =
@@ -25,9 +25,8 @@ class ButtonAssetsManager : Disposable {
 
     fun isFullyLoaded() = assetManager.isLoaded(BUTTONS)
 
-    override fun dispose() {
-        assetManager.unload(BUTTONS)
-    }
+    override fun dispose() = Unit // Shared assets are released by MainGame.
+
 }
 
 val buttonAssetsManager by lazy { ButtonAssetsManager() }

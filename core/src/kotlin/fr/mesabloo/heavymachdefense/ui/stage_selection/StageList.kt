@@ -14,7 +14,9 @@ import fr.mesabloo.heavymachdefense.managers.assets.levelSelectionAssetsManager
 import fr.mesabloo.heavymachdefense.managers.fontManager
 import ktx.graphics.color
 
-class StageList(private val last: Int) : ScrollPane(Table()) {
+class StageList(lastUnlocked: Int) : ScrollPane(Table()) {
+    private val last = lastUnlocked.coerceIn(1, 80)
+
     private val normalBackground =
         levelSelectionAssetsManager.button(LevelSelectionAssetsManager.Companion.ButtonState.NORMAL)
     private val disabledBackground =

@@ -9,7 +9,7 @@ import com.badlogic.gdx.scenes.scene2d.Stage
 import com.badlogic.gdx.scenes.scene2d.ui.*
 
 // Render prompts inside the game: Swing dialogs hang with macOS GLFW's first-thread loop.
-private fun dialogSkin(): Skin = Skin().apply {
+internal fun dialogSkin(): Skin = Skin().apply {
     val pixel = Pixmap(1, 1, Pixmap.Format.RGBA8888)
     pixel.setColor(Color.WHITE)
     pixel.fill()

@@ -4,17 +4,13 @@ import aurelienribon.tweenengine.Tween
 import aurelienribon.tweenengine.TweenManager
 import aurelienribon.tweenengine.equations.Expo
 import com.badlogic.gdx.scenes.scene2d.Touchable
-import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.scenes.scene2d.Actor
 import com.badlogic.gdx.scenes.scene2d.Group
 import com.badlogic.gdx.scenes.scene2d.ui.Image
-import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.badlogic.gdx.utils.Queue
 import fr.mesabloo.heavymachdefense.data.*
-import fr.mesabloo.heavymachdefense.managers.FontManager
 import fr.mesabloo.heavymachdefense.managers.assets.StageAssetsManager
 import fr.mesabloo.heavymachdefense.managers.assets.stageAssetsManager
-import fr.mesabloo.heavymachdefense.managers.fontManager
 import fr.mesabloo.heavymachdefense.timers.cellMiningTimer
 import fr.mesabloo.heavymachdefense.tweens.ActorAccessor
 import fr.mesabloo.heavymachdefense.tweens.ActorAccessor.Companion.POSITION
@@ -50,10 +46,8 @@ private class BuildItemActor(val item: BuildItem) : Group() {
                 it.rotation = 90f
                 it.setScale(0.75f)
             }
-            else -> Label("Turret", Label.LabelStyle().also {
-                it.font = fontManager.bitmapFonts[FontManager.TREBUCHET_MS_BOLD_11_WHITE]
-                it.fontColor = Color.WHITE
-            })
+            is BuildTurretItem -> Turret(item.kind,item.level).also { it.setScale(0.65f) }
+            else -> error("Unknown build item")
         }
         this.addActor(preview.also {
             it.setPosition(32f - it.width / 2f, 32f - it.height / 2f)

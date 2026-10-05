@@ -21,7 +21,6 @@ import fr.mesabloo.heavymachdefense.world.UIWorld
 import fr.mesabloo.heavymachdefense.world.UI_HEIGHT
 import fr.mesabloo.heavymachdefense.world.UI_WIDTH
 import ktx.app.KtxScreen
-import kotlin.properties.Delegates
 
 abstract class AbstractScreen(val game: MainGame, isLoading: Boolean = false) : KtxScreen {
     val ui = UIWorld()
@@ -44,17 +43,11 @@ abstract class AbstractScreen(val game: MainGame, isLoading: Boolean = false) : 
         }
     }
 
-    private var loadingAnimationDone: Boolean by Delegates.observable(false) { _, _, new ->
-        if (new && loadingDone) {
-            this.game.nextScreen()
-        }
-    }
-    private var loadingDone: Boolean by Delegates.observable(false) { _, _, new ->
-        if (new && loadingAnimationDone) {
-            this.game.nextScreen()
-        }
-    }
-    private lateinit var nextScreen: MainGame.() -> Unit
+    private var loadingAnimationDone = false
+    private var readyToSwitch: (() -> Boolean)? = null
+    private var nextScreen: (MainGame.() -> Unit)? = null
+    private var loadingElapsed = 0f
+    private var openingElapsed: Float? = null
 
     protected val mux = InputMultiplexer()
 
@@ -84,7 +77,7 @@ abstract class AbstractScreen(val game: MainGame, isLoading: Boolean = false) : 
         if (this.isLoading)
             return
 
-        this.mux.addProcessor(this.ui)
+        if (!this.mux.processors.contains(this.ui, true)) this.mux.addProcessor(this.ui)
     }
 
     override fun pause() {
@@ -122,22 +115,42 @@ abstract class AbstractScreen(val game: MainGame, isLoading: Boolean = false) : 
 
         this.ui.act(delta)
         this.tweenManager.update(delta)
+        openingElapsed?.let { elapsed ->
+            val next = elapsed + delta
+            openingElapsed = next
+            if (next >= LOADING_DURATION + LOADING_END_DELAY) {
+                openingElapsed = null
+                this.isLoading = false
+                this.show()
+                this.removeLoadingOverlayEnd()
+            }
+        }
+        readyToSwitch?.let { ready ->
+            loadingElapsed += delta
+            try {
+                if ((loadingAnimationDone || loadingElapsed > 1.5f) && ready()) {
+                    val switch = nextScreen
+                    readyToSwitch = null; nextScreen = null
+                    if (switch != null) Gdx.app.postRunnable { switch(game) }
+                } else if (loadingElapsed > 20f) {
+                    failLoading("Loading took too long. Please try again.")
+                }
+            } catch (failure: Exception) {
+                Gdx.app.error("Loading", "Unable to open screen", failure)
+                failLoading("Could not load the mission. Please restart the game and try again.")
+            }
+        }
         this.ui.draw()
     }
 
     fun addLoadingOverlay(finishedLoading: () -> Boolean, switchScreen: MainGame.() -> Unit) {
+        if (readyToSwitch != null || openingElapsed != null) return
         this.isLoading = true
-
+        this.loadingAnimationDone = false
+        this.loadingElapsed = 0f
+        this.readyToSwitch = finishedLoading
         this.nextScreen = switchScreen
-
-        Tween.call { _, source ->
-            if (finishedLoading()) {
-                this.loadingDone = true
-                source.kill()
-            }
-        }
-            .repeat(-1, 0.1f)
-            .start(this.tweenManager)
+        Gdx.input.inputProcessor = null
 
         val tweens = mutableListOf<Tween>()
 
@@ -195,6 +208,7 @@ abstract class AbstractScreen(val game: MainGame, isLoading: Boolean = false) : 
 
     fun addLoadingOverlayEnd() {
         this.isLoading = true
+        this.openingElapsed = 0f
 
         val tweens = mutableListOf<Tween>()
 
@@ -244,11 +258,7 @@ abstract class AbstractScreen(val game: MainGame, isLoading: Boolean = false) : 
             tweens.add(Tween.to(it, SCALE, 0.25f)
                 .target(0.75f, 0.75f)
                 .ease(easeEquation)
-                .setCallbackTriggers(COMPLETE)
-                .setCallback { _, _ ->
-                    this.isLoading = false
-                    this.show()
-                })
+                )
             tweens.add(
                 Tween.to(it, POSITION, LOADING_DURATION)
                     .target(UI_WIDTH / 2f - it.width / 2f, -1158f)
@@ -259,8 +269,16 @@ abstract class AbstractScreen(val game: MainGame, isLoading: Boolean = false) : 
 
         tweens.fold(Timeline.createParallel()) { timeline, tween -> timeline.push(tween) }
             .setCallbackTriggers(COMPLETE)
-            .setCallback { _, _ -> this@AbstractScreen.removeLoadingOverlayEnd() }
+            .setCallback { _, _ -> Unit }
             .start(this.tweenManager)
+    }
+
+    private fun failLoading(message: String) {
+        readyToSwitch = null; nextScreen = null; openingElapsed = null
+        tweenManager.killAll(); isLoading = false
+        background.touchable = Touchable.enabled
+        removeLoadingOverlayEnd()
+        fr.mesabloo.heavymachdefense.ui.showGameDialog(ui, message)
     }
 
     fun removeLoadingOverlayEnd() {

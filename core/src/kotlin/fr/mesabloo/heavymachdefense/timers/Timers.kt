@@ -8,6 +8,13 @@ class CellMiningTimer : Timer() {
     var isPaused: Boolean = false
         private set
 
+    fun resetForMission() {
+        clear()
+        isStopped = false
+        isPaused = false
+        super.start()
+    }
+
     fun pause() {
         if (!this.isStopped) {
             super.stop()

@@ -12,16 +12,13 @@ class StartAssetsManager : Disposable {
     }
 
     fun preload() {
-        assetManager.load<Texture>(TITLE_BACKGROUND)
-        assetManager.load<Texture>(TAP_TO_START)
+        if (!assetManager.isLoaded(TITLE_BACKGROUND)) assetManager.load<Texture>(TITLE_BACKGROUND)
+        if (!assetManager.isLoaded(TAP_TO_START)) assetManager.load<Texture>(TAP_TO_START)
     }
 
     fun isFullyLoaded(): Boolean = listOf(TITLE_BACKGROUND, TAP_TO_START).all { assetManager.isLoaded(it) }
 
-    override fun dispose() {
-        assetManager.unload(TITLE_BACKGROUND)
-        assetManager.unload(TAP_TO_START)
-    }
+    override fun dispose() = Unit // Shared assets are released by MainGame.
 
     fun texture(name: String): TextureRegion = TextureRegion(assetManager.get<Texture>(name))
 }

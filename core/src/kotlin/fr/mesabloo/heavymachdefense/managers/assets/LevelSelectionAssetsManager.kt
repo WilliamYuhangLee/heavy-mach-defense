@@ -27,10 +27,10 @@ class LevelSelectionAssetsManager : Disposable {
     private fun allBackgroundPaths() = (1..27).flatMap { i -> sequenceOf(smallBackground(i, 1), smallBackground(i, 2)) }
 
     fun preload() {
-        this.allBackgroundPaths().forEach { assetManager.load<Texture>(it) }
-        assetManager.load<TextureAtlas>(SELECT_BUTTONS)
-        assetManager.load<Texture>(BACKGROUND)
-        assetManager.load<Texture>(FOREGROUND)
+        this.allBackgroundPaths().forEach { if (!assetManager.isLoaded(it)) assetManager.load<Texture>(it) }
+        if (!assetManager.isLoaded(SELECT_BUTTONS)) assetManager.load<TextureAtlas>(SELECT_BUTTONS)
+        if (!assetManager.isLoaded(BACKGROUND)) assetManager.load<Texture>(BACKGROUND)
+        if (!assetManager.isLoaded(FOREGROUND)) assetManager.load<Texture>(FOREGROUND)
     }
 
     fun texture(path: String): TextureRegion = TextureRegion(assetManager.get<Texture>(path))
@@ -58,12 +58,8 @@ class LevelSelectionAssetsManager : Disposable {
         this.allBackgroundPaths().all { assetManager.isLoaded(it) }
                 && assetManager.isLoaded(SELECT_BUTTONS)
 
-    override fun dispose() {
-        this.allBackgroundPaths().forEach { assetManager.unload(it) }
-        assetManager.unload(SELECT_BUTTONS)
-        assetManager.unload(BACKGROUND)
-        assetManager.unload(FOREGROUND)
-    }
+    override fun dispose() = Unit // Shared assets are released by MainGame.
+
 }
 
 val levelSelectionAssetsManager by lazy { LevelSelectionAssetsManager() }

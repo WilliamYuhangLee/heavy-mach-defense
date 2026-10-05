@@ -2,6 +2,18 @@ package fr.mesabloo.heavymachdefense.screens
 
 import aurelienribon.tweenengine.TweenManager
 import com.badlogic.gdx.Gdx
+import com.badlogic.gdx.scenes.scene2d.InputEvent
+import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
+import com.badlogic.gdx.scenes.scene2d.ui.Label
+import fr.mesabloo.heavymachdefense.gameplay.*
+import fr.mesabloo.heavymachdefense.ui.showChoiceDialog
+import fr.mesabloo.heavymachdefense.managers.assets.assetManager
+import fr.mesabloo.heavymachdefense.managers.assets.levelSelectionAssetsManager
+import fr.mesabloo.heavymachdefense.managers.fontManager
+import fr.mesabloo.heavymachdefense.managers.FontManager
+import kotlinx.serialization.encodeToString
+import kotlin.math.floor
+import kotlin.math.min
 import com.badlogic.gdx.scenes.scene2d.Group
 import com.badlogic.gdx.scenes.scene2d.Touchable
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane
@@ -50,7 +62,16 @@ class StageScreen(
 
     private lateinit var buildQueue: BuildQueue
     private lateinit var allyBase: AllyBase
-    private lateinit var gameWorld: GameWorld
+    lateinit var gameWorld: GameWorld
+        private set
+    private var resultHandled = false
+    private var creditedKills = 0L
+    private var miningRemainder = 0f
+    private var selectedSpecial: SpecialKind? = null
+    private var lastShotCount = 0
+    private var lastEnemyDeaths = 0
+    private var effectCooldown = 0f
+    private lateinit var statusLabel: Label
 
     private val upgrades: Upgrades = Json.decodeFromString(Gdx.files.internal("data/upgrades.json").readString())
     private val builds: Builds = Json {
@@ -130,6 +151,7 @@ class StageScreen(
             return
 
         backgroundMusicManager.play(BackgroundMusicManager.GAMEPLAY, this.backgroundMusicVolume)
+        cellMiningTimer.resetForMission()
         this.systemMenu = SystemMenu(this::backgroundMusicVolume, this::effectsVolume, this)
 
         lateinit var scrollpane: ScrollPane
@@ -148,7 +170,7 @@ class StageScreen(
 
             it.layout()
             it.scrollTo(0f, 0f, 512f, 1024f - yOffset)
-            //it.layout()
+            it.updateVisualScroll()
         })
 
         this.background.addActor(HpGauges(this::playerLife, this::enemyLife).also {
@@ -175,6 +197,7 @@ class StageScreen(
         this.background.addActor(BuildQueue(this::upgradeMenuShown, this.upgrades, this.save) { item ->
             when (item) {
                 is BuildMachineItem -> this.gameWorld.spawnMachine(item.kind, item.level)
+                is BuildTurretItem -> this.gameWorld.spawnTurret(item.kind, item.level)
                 else -> error("Unsupported completed build: ${item.javaClass.simpleName}")
             }
         }.also {
@@ -188,40 +211,7 @@ class StageScreen(
         this.background.addActor(Group().also {
             this.machineSlots = it
 
-            var currentY = SLOT_MENU_HEIGHT - 76f
-            for (slot in this.save.buildSlots) {
-                it.addActor(when (slot) {
-                    is MachineSlot -> MachineBuildSlot(
-                        slot,
-                        this.save,
-                        this.builds,
-                        this::currentCells,
-                        this.buildQueue
-                    )
-                    is TurretSlot -> TurretBuildSlot(
-                        slot,
-                        this.save,
-                        this.builds,
-                        this::currentCells,
-                        this.buildQueue
-                    )
-                    else -> TODO()
-                }.also {
-                    it.setPosition(40f, currentY)
-
-                    it.addListener(
-                        BuildMachineIfPossible(
-                            it,
-                            this::currentCells,
-                            this.buildQueue,
-                            this.builds,
-                            this::upgradeMenuShown
-                        )
-                    )
-                })
-
-                currentY -= 102f
-            }
+            populateMachineSlots(it)
 
             it.setPosition(640f, 966f - SLOT_MENU_HEIGHT)
             it.setSize(SLOT_MENU_WIDTH, SLOT_MENU_HEIGHT)
@@ -235,8 +225,17 @@ class StageScreen(
             var currentY = SLOT_MENU_HEIGHT - 76f
             for (slot in this.save.specialSlots) {
                 it.addActor(when (slot) {
-                    is SpecialSlot -> SpecialBuildSlot(slot, this.save, this.specials)
-                    else -> TODO()
+                    is SpecialSlot -> SpecialBuildSlot(slot, this.save, this.specials).also { button ->
+                        button.addListener(object : ClickListener() {
+                            override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                                if (!button.isDisabled && !resultHandled && !cellMiningTimer.isPaused) {
+                                    selectedSpecial = slot.kind
+                                    statusLabel.setText("Click the battlefield to target; Esc cancels")
+                                }
+                            }
+                        })
+                    }
+                    else -> error("Unsupported equipment slot: ${slot.javaClass.simpleName}")
                 }.also {
                     it.setPosition(40f, currentY)
 
@@ -256,6 +255,11 @@ class StageScreen(
             this.upgradeEquipButton = it
 
             it.setPosition(650f, 180f)
+            it.addListener(object : ClickListener() {
+                override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                    if (!resultHandled && !upgradeMenuShown) openWorkshop()
+                }
+            })
         })
 
         val controlsGroup = Group()
@@ -317,7 +321,19 @@ class StageScreen(
 
         this.terrain.setScrollFocus(true)
 
-        this.gameWorld = GameWorld(this.terrain)
+        this.gameWorld = GameWorld(this.terrain, Battle(level,
+            upgrades.base_defense[(save.mainUpgrades[UpgradeKind.BASE_DEFENSE] ?: 1) - 1].defense / 10f))
+        statusLabel = Label("Build units on the right. Destroy the enemy base.", Label.LabelStyle(
+            fontManager.bitmapFonts[FontManager.TREBUCHET_MS_BOLD_12_WHITE], com.badlogic.gdx.graphics.Color.WHITE))
+        statusLabel.setPosition(142f, 950f)
+        statusLabel.touchable = Touchable.disabled
+        background.addActor(statusLabel)
+        terrain.addListener(object : ClickListener() {
+            override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                val kind = selectedSpecial ?: return
+                useSpecial(kind, x, y)
+            }
+        })
 
         createTerrainBody(this.gameWorld)
         val (allyBase, _) = createBases(this.gameWorld, this.upgrades, this::save)
@@ -349,8 +365,243 @@ class StageScreen(
 
         super.render(delta)
 
-        if (!this.isLoading)
-            this.gameWorld.render(delta)
+        if (!this.isLoading) {
+            val battle = gameWorld.battle
+            battle.upgradeBase(upgrades.base_defense[(save.mainUpgrades[UpgradeKind.BASE_DEFENSE] ?: 1) - 1].defense / 10f,
+                save.mainUpgrades[UpgradeKind.BASE_CANNON] ?: 1)
+            if (!cellMiningTimer.isPaused && !cellMiningTimer.isStopped && battle.result == BattleResult.RUNNING) {
+                miningRemainder += delta.coerceIn(0f,0.25f) * 20f * cellResearchMultiplier
+                val mined = floor(miningRemainder).toLong()
+                currentCells = min(maxCells, currentCells + mined)
+                miningRemainder -= mined.toFloat()
+            }
+            gameWorld.render(delta)
+            effectCooldown = (effectCooldown - delta).coerceAtLeast(0f)
+            if (battle.shotsFired != lastShotCount && effectCooldown <= 0f) {
+                fr.mesabloo.heavymachdefense.managers.soundEffectManager.playShot(effectsVolume)
+                lastShotCount = battle.shotsFired; effectCooldown = 0.12f
+            }
+            if (battle.defeatedEnemies != lastEnemyDeaths) {
+                fr.mesabloo.heavymachdefense.managers.soundEffectManager.playExplosion(effectsVolume)
+                lastEnemyDeaths = battle.defeatedEnemies
+            }
+            playerLife = (100f * battle.allyHp / battle.allyMaxHp).toLong()
+            enemyLife = (100f * battle.enemyHp / battle.enemyMaxHp).toLong()
+            if (battle.creditsEarned > creditedKills) {
+                save.credits += ((battle.creditsEarned - creditedKills) * crResearchMultiplier).toLong()
+                creditedKills = battle.creditsEarned
+            }
+            if (Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.ESCAPE)) {
+                selectedSpecial = null
+                statusLabel.setText("Build units on the right. Destroy the enemy base.")
+            }
+            if (!resultHandled && battle.result != BattleResult.RUNNING) finishMission()
+        }
+    }
+
+    private fun populateMachineSlots(it: Group) {
+        it.clearChildren()
+        var currentY = SLOT_MENU_HEIGHT - 76f
+            for (slot in this.save.buildSlots) {
+                it.addActor(when (slot) {
+                    is MachineSlot -> MachineBuildSlot(
+                        slot,
+                        this.save,
+                        this.builds,
+                        this::currentCells,
+                        this.buildQueue
+                    )
+                    is TurretSlot -> TurretBuildSlot(
+                        slot,
+                        this.save,
+                        this.builds,
+                        this::currentCells,
+                        this.buildQueue
+                    )
+                    else -> error("Unsupported equipment slot: ${slot.javaClass.simpleName}")
+                }.also {
+                    it.setPosition(40f, currentY)
+
+                    it.addListener(
+                        BuildMachineIfPossible(
+                            it,
+                            this::currentCells,
+                            this.buildQueue,
+                            this.builds,
+                            this::upgradeMenuShown
+                        )
+                    )
+                })
+
+                currentY -= 102f
+            }
+
+
+    }
+
+    private fun persistSave() {
+        if (saveIndex < 0) return // isolated smoke tests use an in-memory save
+        val prefs = Gdx.app.getPreferences(GameSave.PREFERENCES_PATH)
+        prefs.putString(saveIndex.toString(), Json.encodeToString(save))
+        prefs.flush()
+    }
+
+    private fun finishMission() {
+        resultHandled = true
+        cellMiningTimer.pause()
+        val victory = gameWorld.battle.result == BattleResult.VICTORY
+        val reward = if (victory) MissionProgress.victory(save, level) else 0L
+        persistSave()
+        val choices = mutableListOf<Pair<String, () -> Unit>>()
+        if (victory && level < MissionProgress.LAST_STAGE) choices.add("Next mission" to { openMission(level + 1) })
+        choices.add("Retry mission" to { openMission(level) })
+        choices.add("Mission select" to { saveAndExit() })
+        showChoiceDialog(ui, if (victory) "VICTORY" else "DEFEAT",
+            if (victory) "Enemy base destroyed! +$reward CR.\n${gameWorld.battle.defeatedEnemies} enemies defeated."
+            else "Your base was destroyed. Spend credits on upgrades and try again.", choices)
+    }
+
+    fun openMission(nextLevel: Int) {
+        Gdx.app.postRunnable {
+            game.replaceScreen(MissionLoadingScreen(game, nextLevel, save, saveIndex))
+        }
+    }
+
+    fun saveAndExit() {
+        persistSave()
+        Gdx.app.postRunnable {
+            levelSelectionAssetsManager.preload()
+            fr.mesabloo.heavymachdefense.managers.assets.buttonAssetsManager.preload()
+            assetManager.finishLoading()
+            game.replaceScreen(StageSelectionScreen(game, save, saveIndex))
+        }
+    }
+
+    fun showHelp() {
+        showChoiceDialog(ui, "How to play",
+            "Build machines on the right using cells. They advance and fight automatically. " +
+            "Destroy the enemy base to win. Cells refill during battle. Kills and victories earn CR. " +
+            "Base Upgrade improves your economy and defenses. Equip/Upgrade opens the workshop. " +
+            "Buy special attacks there, select one, then click the battlefield to aim.",
+            listOf("Back" to {}))
+    }
+
+    private fun openWorkshop() {
+        cellMiningTimer.pause()
+        selectedSpecial = null
+        val choices = mutableListOf<Pair<String, () -> Unit>>()
+        if (currentMenuKind == StageAssetsManager.UI.TitleKind.SPECIAL_ATTACK) {
+            SpecialKind.values().forEach { kind ->
+                val cost = 150L + kind.ordinal * 100L
+                choices.add("${kind.name.replace('_',' ')}: $cost CR" to {
+                    if (save.credits >= cost) {
+                        save.credits -= cost
+                        save.specialCount[kind] = (save.specialCount[kind] ?: 0) + 1
+                        persistSave()
+                    }
+                    openWorkshop()
+                })
+            }
+        } else {
+            MachineKind.values().filter { MissionProgress.unlocked(save,it) }.forEach { kind ->
+                choices.add("${kind.machineName}: level ${save.machineUpgrades[kind] ?: 1}" to { editMachine(kind) })
+            }
+            TurretKind.values().filter { save.lastStageCompleted >= 2 + it.ordinal * 2 }.forEach { kind ->
+                choices.add("${kind.turretName} turret: level ${save.turretUpgrades[kind] ?: 1}" to { editTurret(kind) })
+            }
+        }
+        choices.add("Back to battle" to { populateMachineSlots(machineSlots); cellMiningTimer.resume() })
+        showChoiceDialog(ui, "Workshop - ${save.credits} CR",
+            if (currentMenuKind == StageAssetsManager.UI.TitleKind.SPECIAL_ATTACK) "Buy a charge, then select its icon and click the battlefield."
+            else "Upgrade/equip machines. New types unlock every two stages. Six equipment slots are available.", choices)
+    }
+
+    private fun editMachine(kind: MachineKind) {
+        val unitLevel = save.machineUpgrades[kind] ?: 1
+        val cost = 150L * unitLevel * (kind.ordinal + 1)
+        val choices = mutableListOf<Pair<String, () -> Unit>>()
+        if (unitLevel < 10) choices.add("Upgrade to level ${unitLevel + 1}: $cost CR" to {
+            if (save.credits >= cost) { save.credits -= cost; save.machineUpgrades[kind] = unitLevel + 1; persistSave() }
+            editMachine(kind)
+        })
+        val equipped = save.buildSlots.any { it is MachineSlot && it.kind == kind }
+        choices.add((if (equipped) "Unequip from build sidebar" else "Equip in build sidebar") to {
+            if (equipped) {
+                save.buildSlots.removeAll { it is MachineSlot && it.kind == kind }
+                equipmentChanged()
+            } else equipSlot(MachineSlot(kind))
+        })
+        choices.add("Back" to { openWorkshop() })
+        showChoiceDialog(ui, kind.machineName, "Level $unitLevel. Available: ${save.credits} CR", choices)
+    }
+
+    private fun editTurret(kind: TurretKind) {
+        val turretLevel = (save.turretUpgrades[kind] ?: 1).coerceIn(1, 5)
+        val cost = 200L * turretLevel * (kind.ordinal + 1)
+        val choices = mutableListOf<Pair<String, () -> Unit>>()
+        if (turretLevel < 5) choices.add("Upgrade to level ${turretLevel + 1}: $cost CR" to {
+            if (save.credits >= cost) {
+                save.credits -= cost
+                save.turretUpgrades[kind] = turretLevel + 1
+                persistSave()
+            }
+            editTurret(kind)
+        })
+        val equipped = save.buildSlots.any { it is TurretSlot && it.kind == kind }
+        choices.add((if (equipped) "Unequip from build sidebar" else "Equip in build sidebar") to {
+            if (equipped) {
+                save.buildSlots.removeAll { it is TurretSlot && it.kind == kind }
+                equipmentChanged()
+            } else equipSlot(TurretSlot(kind))
+        })
+        choices.add("Back" to { openWorkshop() })
+        showChoiceDialog(ui, "${kind.turretName} turret",
+            "Stationary defense. Level $turretLevel. Available: ${save.credits} CR", choices)
+    }
+
+    private fun equipmentChanged() {
+        populateMachineSlots(machineSlots)
+        persistSave()
+        openWorkshop()
+    }
+
+    private fun equipSlot(slot: Slot) {
+        if (save.buildSlots.size < 6) {
+            save.buildSlots.add(slot)
+            equipmentChanged()
+            return
+        }
+        val choices = save.buildSlots.mapIndexed { index, existing ->
+            val name = when (existing) {
+                is MachineSlot -> existing.kind.machineName
+                is TurretSlot -> "${existing.kind.turretName} turret"
+                else -> "slot ${index + 1}"
+            }
+            "Replace $name" to {
+                save.buildSlots[index] = slot
+                equipmentChanged()
+            }
+        }.toMutableList()
+        choices.add("Back" to { openWorkshop() })
+        showChoiceDialog(ui, "Equipment full", "Choose which of your six slots to replace.", choices)
+    }
+
+    private fun useSpecial(kind: SpecialKind, x: Float, y: Float) {
+        if (cellMiningTimer.isPaused || resultHandled || (save.specialCount[kind] ?: 0) <= 0) return
+        val damage: Float
+        val radius: Float
+        var stun = 0f
+        when (kind) {
+            SpecialKind.AIRSTRIKE_BOMB -> { damage = 300f; radius = 150f }
+            SpecialKind.AIRSTRIKE_MISSILE -> { damage = 450f; radius = 180f }
+            SpecialKind.AIRSTRIKE_NUKE -> { damage = 1500f; radius = 300f }
+            SpecialKind.AIRSTRIKE_EMP -> { damage = 100f; radius = 200f; stun = 12f }
+            SpecialKind.CROSSFIRE_MISSILE -> { damage = 600f; radius = 130f }
+        }
+        gameWorld.battle.special(x, y, damage, radius, stun)
+        save.specialCount[kind] = (save.specialCount[kind] ?: 0) - 1
+        selectedSpecial = null
+        statusLabel.setText("Special attack deployed")
     }
 
     override fun pause() {

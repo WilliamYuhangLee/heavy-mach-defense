@@ -79,8 +79,11 @@ class SystemMenu(
             table.add(MenuButton(ButtonKind.SAVE).also {
                 it.addListener(SaveAndExitStage(this.screen, this))
             }).row()
-            table.add(MenuButton(ButtonKind.HELP)).row()
-            table.add(MenuButton(ButtonKind.LEADER_BOARD)).padBottom(70f).row()
+            table.add(MenuButton(ButtonKind.HELP).also {
+                it.addListener(object : ClickListener() {
+                    override fun clicked(event: InputEvent?, x: Float, y: Float) { screen.showHelp() }
+                })
+            }).padBottom(70f).row()
             table.add(Table().also {
                 it.add(Image(stageAssetsManager.get(StageAssetsManager.Dialog.VOLUME_OPTIONS))).left()
                 it.add(Table().also {
@@ -140,7 +143,7 @@ private enum class ButtonKind {
 
 private class MenuButton(kind: ButtonKind) : TextButton(when (kind) {
     ButtonKind.RESUME -> "Resume Game"
-    ButtonKind.SAVE -> "Save & Exit Game"
+    ButtonKind.SAVE -> "Save & Mission Select"
     ButtonKind.HELP -> "Help"
     ButtonKind.LEADER_BOARD -> "Leader Board"
 }, TextButtonStyle().also {

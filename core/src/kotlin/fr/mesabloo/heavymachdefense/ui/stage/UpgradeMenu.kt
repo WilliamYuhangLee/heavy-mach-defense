@@ -57,9 +57,9 @@ class UpgradeMenu(private val save: GameSave, private val upgrades: Upgrades, cl
         val cellStorageLevel =
             (save.mainUpgrades[UpgradeKind.CELL_STORAGE]?.toLong()?.coerceIn(1..cellStorageMaxLevel) ?: 1) - 1
 
-        val currentAttack = upgrades.base_cannon[baseCannonLevel.toInt()].attack
+        val currentAttack = fr.mesabloo.heavymachdefense.gameplay.CombatBalance.baseCannonDamage(baseCannonLevel.toInt() + 1).toLong()
         val nextAttack =
-            upgrades.base_cannon[(baseCannonLevel + 1).coerceIn(0 until baseDefenseMaxLevel).toInt()].attack
+            fr.mesabloo.heavymachdefense.gameplay.CombatBalance.baseCannonDamage(baseCannonLevel.toInt() + 2).toLong()
 
         val currentDefense = upgrades.base_defense[baseDefenseLevel.toInt()].defense
         val nextDefense =

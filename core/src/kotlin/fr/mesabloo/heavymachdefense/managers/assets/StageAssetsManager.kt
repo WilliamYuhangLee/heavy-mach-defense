@@ -167,8 +167,8 @@ class StageAssetsManager : Disposable {
     fun preload(level: Int) {
         this.stageLevel = level
 
-        this.allTextures().forEach { assetManager.load<Texture>(it) }
-        this.allAtlases().forEach { assetManager.load<TextureAtlas>(it) }
+        this.allTextures().forEach { if (!assetManager.isLoaded(it)) assetManager.load<Texture>(it) }
+        this.allAtlases().forEach { if (!assetManager.isLoaded(it)) assetManager.load<TextureAtlas>(it) }
     }
 
     fun isFullyLoaded(): Boolean =
@@ -181,14 +181,7 @@ class StageAssetsManager : Disposable {
     fun unsafeRegion(path: String, regionName: String): TextureRegion =
         assetManager.get<TextureAtlas>(path).findRegion(regionName)
 
-    override fun dispose() {
-        if (this.stageLevel != null) {
-            val (bg1, bg2) = backgrounds(this.stageLevel!!)
-
-            assetManager.unload(bg1)
-            assetManager.unload(bg2)
-        }
-    }
+    override fun dispose() = Unit // Shared assets are released by MainGame.
 
     fun background(): Pair<TextureRegion, TextureRegion>? = this.stageLevel?.let { level ->
         backgrounds(level).let { Pair(this.get(it.first), this.get(it.second)) }

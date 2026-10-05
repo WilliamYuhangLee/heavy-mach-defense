@@ -61,7 +61,10 @@ eclipse.project.name = appName + "-desktop"
 // Requires a graphical desktop, but uses a hidden window and an in-memory save.
 task verifyMachineSpawning(type: JavaExec, dependsOn: testClasses) {
     group = "verification"
-    description = "Checks the first mission's build queue and unit deployment with real game assets."
+    description = "Checks fresh launch, live combat, progression, retry, workshop, audio, and campaign assets."
+    if (project.hasProperty("smokeCaptureDir")) {
+        systemProperty "hm.smoke.capture", project.property("smokeCaptureDir")
+    }
     main = "fr.mesabloo.heavymachdefense.desktop.MachineSpawningSmokeTest"
     classpath = sourceSets.test.runtimeClasspath
     workingDir = project.assetsDir
@@ -76,4 +79,11 @@ dependencies {
 
 compileTestKotlin {
     kotlinOptions.jvmTarget = "11"
+}
+
+
+task verifyBattleSimulation(type: JavaExec, dependsOn: testClasses) {
+    group = "verification"
+    main = "fr.mesabloo.heavymachdefense.desktop.BattleSimulationTest"
+    classpath = sourceSets.test.runtimeClasspath
 }

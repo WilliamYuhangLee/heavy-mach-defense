@@ -19,7 +19,7 @@ class DebugAssetsManager : Disposable {
         private set
 
     fun preload() {
-        assetManager.load<Texture>(BLACK_BG)
+        if (!assetManager.isLoaded(BLACK_BG)) assetManager.load<Texture>(BLACK_BG)
 
         this.font = BitmapFont(Gdx.files.internal("fonts/$FONT.fnt")).also {
             it.setUseIntegerPositions(false)
@@ -30,9 +30,8 @@ class DebugAssetsManager : Disposable {
 
     fun get(path: String): Texture = assetManager.get(path)
 
-    override fun dispose() {
-        assetManager.unload(BLACK_BG)
-    }
+    override fun dispose() = Unit // Shared assets are released by MainGame.
+
 }
 
 val debugAssetsManager by lazy { DebugAssetsManager() }

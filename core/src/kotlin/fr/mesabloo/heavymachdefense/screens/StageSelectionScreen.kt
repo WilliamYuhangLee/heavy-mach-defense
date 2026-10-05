@@ -26,6 +26,16 @@ class StageSelectionScreen(
     lateinit var scrollPane: StageList
         private set
 
+    private var startingMission = false
+    fun beginMission(index: Int) {
+        if (startingMission || index !in 0 until fr.mesabloo.heavymachdefense.gameplay.MissionProgress.LAST_STAGE || index > save.lastStageCompleted) return
+        startingMission = true
+        com.badlogic.gdx.Gdx.input.inputProcessor = null
+        com.badlogic.gdx.Gdx.app.postRunnable {
+            game.replaceScreen(MissionLoadingScreen(game,index+1,save,saveIndex))
+        }
+    }
+
     override fun show() {
         super.show()
 

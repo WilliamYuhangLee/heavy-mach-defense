@@ -1,126 +1,133 @@
 package fr.mesabloo.heavymachdefense.world
 
-import com.badlogic.gdx.Gdx
+import com.badlogic.gdx.graphics.Color
+import com.badlogic.gdx.graphics.Pixmap
+import com.badlogic.gdx.graphics.Texture
+import com.badlogic.gdx.graphics.g2d.Batch
 import com.badlogic.gdx.physics.box2d.*
 import com.badlogic.gdx.scenes.scene2d.Actor
+import com.badlogic.gdx.scenes.scene2d.Group
+import com.badlogic.gdx.scenes.scene2d.Touchable
+import com.badlogic.gdx.scenes.scene2d.ui.Image
 import com.badlogic.gdx.utils.Array
 import com.badlogic.gdx.utils.Disposable
-import fr.mesabloo.heavymachdefense.BG_BORDER
 import fr.mesabloo.heavymachdefense.PPM
-import fr.mesabloo.heavymachdefense.data.MachineKind
+import fr.mesabloo.heavymachdefense.data.*
+import fr.mesabloo.heavymachdefense.gameplay.*
+import fr.mesabloo.heavymachdefense.managers.assets.StageAssetsManager
+import fr.mesabloo.heavymachdefense.managers.assets.stageAssetsManager
+import fr.mesabloo.heavymachdefense.timers.cellMiningTimer
 import fr.mesabloo.heavymachdefense.ui.stage.Machine
-import com.badlogic.gdx.scenes.scene2d.Touchable
+import fr.mesabloo.heavymachdefense.ui.stage.Terrain
 import ktx.box2d.body
 import ktx.box2d.box
-import fr.mesabloo.heavymachdefense.ifDebug
-import fr.mesabloo.heavymachdefense.ui.stage.Terrain
-import ktx.actors.contains
-import fr.mesabloo.heavymachdefense.timers.cellMiningTimer
-import kotlin.math.min
 import ktx.box2d.createWorld
+import kotlin.math.*
 
-class GameWorld(private val terrain: Terrain) : Disposable {
+class GameWorld(private val terrain: Terrain, val battle: Battle = Battle(1)) : Disposable {
     val world: World = createWorld()
-
-    private val debugRenderer = Box2DDebugRenderer()
-
-    private val bodies = Array<Body>(50)
-
-    companion object {
-        // Provisional shared speed until per-machine movement stats are available.
-        const val MACHINE_SPEED_PIXELS_PER_SECOND = 64f
-    }
+    private val bodies = Array<Body>()
+    private val deployed = mutableMapOf<Int, Body>()
+    private val pixel: Texture
+    private val effects: Actor
 
     init {
-        this.world.setContactListener(object : ContactListener {
-            override fun beginContact(p0: Contact) {
-                val bodyA = p0.fixtureA
-                val bodyB = p0.fixtureB
-
-                if ((bodyA.userData == BG_BORDER && !bodyB.isSensor) || (bodyB.userData == BG_BORDER && !bodyA.isSensor)) {
-                    Gdx.app.debug(this.javaClass.simpleName, "Contact with border detected")
+        val p = Pixmap(1, 1, Pixmap.Format.RGBA8888)
+        p.setColor(Color.WHITE); p.fill(); pixel = Texture(p); p.dispose()
+        effects = object : Actor() {
+            override fun draw(batch: Batch, parentAlpha: Float) {
+                battle.projectiles.forEach { shot ->
+                    batch.setColor(if (shot.team == Team.ALLY) Color.YELLOW else Color.ORANGE)
+                    val angle = atan2(shot.targetY - shot.y, shot.targetX - shot.x) * 180f / PI.toFloat()
+                    batch.draw(pixel, shot.x, shot.y, 0f, 1.5f, 10f, 3f, 1f, 1f, angle, 0, 0, 1, 1, false, false)
                 }
+                battle.blasts.forEach { blast ->
+                    val size = blast.radius * (1f - blast.life.coerceAtMost(0.4f) / 0.5f)
+                    batch.setColor(1f, 0.6f, 0.15f, (blast.life * 2f).coerceIn(0f, 0.7f))
+                    batch.draw(pixel, blast.x - size / 2f, blast.y - size / 2f, size, size)
+                }
+                batch.color = Color.WHITE
             }
-
-            override fun endContact(p0: Contact?) {
-
-            }
-
-            override fun preSolve(p0: Contact?, p1: Manifold?) {
-
-            }
-
-            override fun postSolve(p0: Contact?, p1: ContactImpulse?) {
-
-            }
-        })
+        }
+        effects.touchable = Touchable.disabled
+        terrain.addActor(effects)
     }
 
-    /** Put a completed machine above the allied base, with separate deployment positions. */
-    fun spawnMachine(kind: MachineKind, level: Int): Body {
-        val machine = Machine(kind, level)
-        machine.setOrigin(machine.width / 2f, machine.height / 2f)
-        machine.rotation = 90f
-        machine.touchable = Touchable.disabled
+    fun spawnMachine(kind: MachineKind, level: Int): Body = attach(battle.spawn(kind, level))
+    fun spawnTurret(kind: TurretKind, level: Int): Body =
+        attach(battle.spawn(CombatBalance.machineFor(kind), level, turret = kind))
 
-        world.getBodies(bodies)
-        val deployed = bodies.count { it.userData is Machine }
-        // Five lanes keep the initial deployments inside the visible battlefield.
-        val centerX = 128f + (deployed % 5) * 64f
-        val centerY = 208f + (deployed / 5) * 64f
+    private fun attach(unit: CombatUnit): Body {
+        val actor = CombatActor(unit, pixel)
         val body = world.body {
             type = BodyDef.BodyType.KinematicBody
-            position.set(centerX / PPM, centerY / PPM)
-            box(width = machine.width / PPM, height = machine.height / PPM) {
-                isSensor = true
-            }
-            userData = machine
+            position.set(unit.x / PPM, unit.y / PPM)
+            box(width = 32f / PPM, height = 32f / PPM) { isSensor = true }
+            userData = actor
         }
-        machine.setPosition(centerX - machine.width / 2f, centerY - machine.height / 2f)
-        terrain.addActor(machine)
+        deployed[unit.id] = body
+        terrain.addActor(actor)
+        actor.setPosition(unit.x - 16f, unit.y - 16f)
         return body
     }
 
     fun render(deltaTime: Float) {
-        // Use elapsed time rather than one physics step per rendered frame.
-        // Clamp long stalls and subdivide to keep Box2D steps bounded.
-        if (!cellMiningTimer.isPaused && !cellMiningTimer.isStopped) {
-            var remaining = deltaTime.coerceIn(0f, 0.25f)
-            while (remaining > 0f) {
-                val step = min(remaining, 1f / 60f)
-                world.getBodies(bodies)
-                val destinationY = (terrain.height - 192f) / PPM
-                bodies.forEach { body ->
-                    if (body.userData is Machine) {
-                        val distance = (destinationY - body.position.y).coerceAtLeast(0f)
-                        body.setLinearVelocity(0f, min(MACHINE_SPEED_PIXELS_PER_SECOND / PPM, distance / step))
-                    }
-                }
-                world.step(step, 6, 2)
-                remaining -= step
-            }
+        battle.advance(deltaTime, cellMiningTimer.isPaused || cellMiningTimer.isStopped)
+        val alive = battle.units.map { it.id }.toSet()
+        deployed.keys.filter { it !in alive }.forEach { id ->
+            val body = deployed.remove(id)!!
+            (body.userData as Actor).remove(); world.destroyBody(body)
         }
-
-        bodies.clear()
-        this.world.getBodies(bodies)
-
+        battle.units.forEach { unit ->
+            val body = deployed[unit.id] ?: attach(unit)
+            body.setTransform(unit.x / PPM, unit.y / PPM, 0f)
+            (body.userData as CombatActor).update(battle.elapsed)
+        }
+        world.getBodies(bodies)
         bodies.forEach { body ->
-            val pos = body.position
-            (body.userData as? Actor)?.also {
-                it.setPosition(pos.x * PPM - it.width / 2f, pos.y * PPM - it.height / 2f)
-
-                if (!this.terrain.contains(it)) {
-                    this.terrain.addActor(it)
-                }
+            (body.userData as? Actor)?.also { actor ->
+                actor.setPosition(body.position.x * PPM - actor.width / 2f, body.position.y * PPM - actor.height / 2f)
+                if (actor.parent == null) terrain.addActor(actor)
             }
         }
-
-        ifDebug {
-            this.debugRenderer.render(this.world, this.terrain.stage.camera.combined.cpy().translate(128f, 180f, 0f))
-        }
+        effects.toFront()
     }
 
-    override fun dispose() {
-        this.world.dispose()
+    override fun dispose() { world.dispose(); pixel.dispose() }
+}
+
+private class CombatActor(val unit: CombatUnit, private val pixel: Texture) : Group() {
+    private val sprite: Actor = if (unit.turretKind != null) {
+        fr.mesabloo.heavymachdefense.ui.stage.Turret(unit.turretKind,unit.level)
+    } else if (unit.team == Team.ENEMY) {
+        Group().apply {
+            val index = (unit.kind.ordinal + 1).toString().padStart(2, '0')
+            addActor(Image(stageAssetsManager.unsafeRegion(StageAssetsManager.TANK_BODIES, index)).also {
+                width = it.width; height = it.height
+            })
+            addActor(Image(stageAssetsManager.unsafeRegion(StageAssetsManager.TANK_WEAPONS, index)).also {
+                it.setPosition((width - it.width) / 2f, (height - it.height) / 2f)
+            })
+        }
+    } else Machine(unit.kind, unit.level)
+    init {
+        setSize(32f, 32f); touchable = Touchable.disabled
+        sprite.setOrigin(sprite.width / 2f, sprite.height / 2f)
+        sprite.setPosition(16f - sprite.width / 2f, 16f - sprite.height / 2f)
+        if (unit.turretKind != null) sprite.setScale(1.25f)
+        addActor(sprite)
+    }
+    fun update(time: Float) {
+        sprite.rotation = unit.angle
+        sprite.y = 16f - sprite.height / 2f + if (unit.moving) sin(time * 18f) * 1.2f else 0f
+        sprite.color = when { unit.stunnedFor > 0 -> Color.CYAN; unit.firing > 0 -> Color(1f,1f,0.65f,1f); else -> Color.WHITE }
+    }
+    override fun draw(batch: Batch, parentAlpha: Float) {
+        super.draw(batch, parentAlpha)
+        batch.setColor(0.08f,0.08f,0.08f,parentAlpha)
+        batch.draw(pixel,x-4f,y+39f,40f,5f)
+        batch.setColor(if (unit.team == Team.ALLY) Color.GREEN else Color.RED)
+        batch.draw(pixel,x-4f,y+39f,40f * (unit.hp/unit.stats.health).coerceIn(0f,1f),5f)
+        batch.color = Color.WHITE
     }
 }

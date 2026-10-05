@@ -1,3 +1,6 @@
 *.png
 *.jpg
 *.wav
+# Original generated effects for the playable desktop remake.
+!sfx/gameplay/shot.wav
+!sfx/gameplay/explosion.wav
