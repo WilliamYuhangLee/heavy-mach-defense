@@ -165,7 +165,12 @@ class StageScreen(
                 it.setPosition(630f, 972f)
             })
 
-        this.background.addActor(BuildQueue(this::upgradeMenuShown, this.upgrades, this.save).also {
+        this.background.addActor(BuildQueue(this::upgradeMenuShown, this.upgrades, this.save) { item ->
+            when (item) {
+                is BuildMachineItem -> this.gameWorld.spawnMachine(item.kind, item.level)
+                else -> error("Unsupported completed build: ${item.javaClass.simpleName}")
+            }
+        }.also {
             this.buildQueue = it
 
             it.height = 508f

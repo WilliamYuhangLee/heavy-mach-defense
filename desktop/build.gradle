@@ -56,3 +56,24 @@ task dist(type: Jar) {
 dist.dependsOn classes
 
 eclipse.project.name = appName + "-desktop"
+
+
+// Requires a graphical desktop, but uses a hidden window and an in-memory save.
+task verifyMachineSpawning(type: JavaExec, dependsOn: testClasses) {
+    group = "verification"
+    description = "Checks the first mission's build queue and unit deployment with real game assets."
+    main = "fr.mesabloo.heavymachdefense.desktop.MachineSpawningSmokeTest"
+    classpath = sourceSets.test.runtimeClasspath
+    workingDir = project.assetsDir
+    if (System.getProperty("os.name").toLowerCase().contains("mac")) {
+        jvmArgs "-XstartOnFirstThread"
+    }
+}
+
+dependencies {
+    testImplementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.3.2"
+}
+
+compileTestKotlin {
+    kotlinOptions.jvmTarget = "11"
+}

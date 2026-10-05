@@ -3,7 +3,7 @@ package fr.mesabloo.heavymachdefense.ui.stage
 import aurelienribon.tweenengine.Tween
 import aurelienribon.tweenengine.TweenManager
 import aurelienribon.tweenengine.equations.Expo
-import com.badlogic.gdx.Gdx
+import com.badlogic.gdx.scenes.scene2d.Touchable
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.scenes.scene2d.Actor
 import com.badlogic.gdx.scenes.scene2d.Group
@@ -44,11 +44,20 @@ private class BuildItemActor(val item: BuildItem) : Group() {
             it.setPosition(-32f, -32f)
         })
 
-        this.addActor(Label("TODO", Label.LabelStyle().also {
-            it.font = fontManager.bitmapFonts[FontManager.TREBUCHET_MS_20_BLUE]
-            it.fontColor = Color.MAGENTA
-        }).also {
+        val preview: Actor = when (item) {
+            is BuildMachineItem -> Machine(item.kind, item.level).also {
+                it.setOrigin(it.width / 2f, it.height / 2f)
+                it.rotation = 90f
+                it.setScale(0.75f)
+            }
+            else -> Label("Turret", Label.LabelStyle().also {
+                it.font = fontManager.bitmapFonts[FontManager.TREBUCHET_MS_BOLD_11_WHITE]
+                it.fontColor = Color.WHITE
+            })
+        }
+        this.addActor(preview.also {
             it.setPosition(32f - it.width / 2f, 32f - it.height / 2f)
+            it.touchable = Touchable.disabled
         })
 
         this.addActor(Image(stageAssetsManager.get(StageAssetsManager.UI.BUILD_QUEUE_GAUGE)).also {
@@ -60,7 +69,7 @@ private class BuildItemActor(val item: BuildItem) : Group() {
     }
 
     override fun act(delta: Float) {
-        this.gauge.width = (this.width - PADDING) * (this.item.elapsed / this.item.timeToBuild)
+        this.gauge.width = (this.width - PADDING) * (this.item.elapsed / this.item.timeToBuild.coerceAtLeast(0.001f)).coerceIn(0f, 1f)
 
         super.act(delta)
     }
@@ -70,6 +79,7 @@ class BuildQueue(
     private val upgradeMenuShown: KMutableProperty0<Boolean>,
     private val upgrades: Upgrades,
     private val save: GameSave,
+    private val onCompleted: (BuildItem) -> Unit,
 ) : Group() {
     private companion object {
         const val SLOT_HEIGHT = 64f
@@ -120,6 +130,7 @@ class BuildQueue(
             var index = 0
             while (index < this.queue.size) {
                 val item = this.queue[index]
+                item.item.elapsed += delta
 
                 if (item.item.elapsed >= item.item.timeToBuild) {
                     if (this.queue.size > index) {
@@ -144,12 +155,10 @@ class BuildQueue(
                     this.tweenManager.killTarget(item, POSITION)
                     item.remove()
 
-                    Gdx.app.debug(this.javaClass.simpleName, "TODO: create machine in world")
+                    this.onCompleted(item.item)
                 } else {
                     index += 1
                 }
-
-                item.item.elapsed += delta
             }
 
             super.act(delta)

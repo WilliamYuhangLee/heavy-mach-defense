@@ -1,5 +1,6 @@
 package fr.mesabloo.heavymachdefense.ui.stage
 
+import com.badlogic.gdx.graphics.g2d.TextureRegion
 import com.badlogic.gdx.scenes.scene2d.Group
 import com.badlogic.gdx.scenes.scene2d.ui.Image
 import fr.mesabloo.heavymachdefense.data.MachineKind
@@ -18,7 +19,7 @@ class Machine(kind: MachineKind, level: Int) : Group() {
         val weapon1 =
             Image(stageAssetsManager.unsafeRegion(StageAssetsManager.MACHINE_WEAPONS, "${kind.machineName}-$oLevel"))
         val weapon2 = Image(
-            stageAssetsManager.unsafeRegion(StageAssetsManager.MACHINE_WEAPONS, "${kind.machineName}-$oLevel").also {
+            TextureRegion(stageAssetsManager.unsafeRegion(StageAssetsManager.MACHINE_WEAPONS, "${kind.machineName}-$oLevel")).also {
                 it.flip(false, true)
             })
 

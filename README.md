@@ -42,6 +42,26 @@ on macOS.
 
 > TODO (not yet provided)
 
+## Current implementation limits
+
+This remains an unfinished remake. Completed machine builds now show unit artwork
+in the queue and deploy a stationary unit above the allied base. Movement, combat,
+and mission completion are not implemented by this fix. Turret construction also
+still contains upstream placeholders.
+
+## Verifying machine deployment
+
+With Java 11 selected in `JAVA_HOME`, run:
+
+```sh
+./gradlew :desktop:verifyMachineSpawning
+```
+
+This graphics smoke test requires a desktop session. It uses a hidden window,
+real first-mission assets, and an in-memory save; it does not read or modify player
+saves. It checks queue artwork, single and simultaneous completions, pause/stop
+behavior, visible deployment positions, and shared sprite consistency.
+
 ## Gameplay
 
 Described [here](docs/Gameplay.md).
