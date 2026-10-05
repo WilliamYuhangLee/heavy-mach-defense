@@ -24,7 +24,15 @@ On Windows, if Java has been installed globally, you should be able to launch it
 If not, resort to using the command-line (CMD, Powershell, or others) and type the command `java -jar path/to/desktop-VER.jar`.
 On Linux and MacOS, the above command should work, provided that `java` is installed on your computer.
 
-> TODO: create wrapper scripts around `java -jar desktop-VER.jar`
+#### macOS
+
+Install Java 11 (`brew install openjdk@11`), then run `./play-macos.command`
+from the repository or double-click it in Finder. The launcher selects Java 11,
+builds with the bundled Gradle wrapper, and starts the game with macOS's required
+`-XstartOnFirstThread` option. A separately installed Gradle is not needed.
+
+Save prompts are rendered inside the game to avoid the Swing/GLFW startup hang
+on macOS.
 
 ### Android
 
