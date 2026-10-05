@@ -18,7 +18,23 @@ import fr.mesabloo.heavymachdefense.tweens.ActorAccessor.Companion.ROTATION
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 
-class AllyBase(defLevel: Int, atkLevel: Int) : Group() {
+abstract class ReactiveBase : Group() {
+    var damageFlash = 0f
+    var ruined = false
+
+    override fun draw(batch: com.badlogic.gdx.graphics.g2d.Batch, parentAlpha: Float) {
+        super.draw(batch, parentAlpha)
+        if (damageFlash > 0f) {
+            val source = batch.blendSrcFunc
+            val destination = batch.blendDstFunc
+            batch.setBlendFunction(com.badlogic.gdx.graphics.GL20.GL_SRC_ALPHA, com.badlogic.gdx.graphics.GL20.GL_ONE)
+            super.draw(batch, parentAlpha * damageFlash * 0.8f)
+            batch.setBlendFunction(source, destination)
+        }
+    }
+}
+
+class AllyBase(defLevel: Int, atkLevel: Int) : ReactiveBase() {
     private val tweenManager = TweenManager()
 
     private lateinit var base: Actor
@@ -174,7 +190,7 @@ class AllyBase(defLevel: Int, atkLevel: Int) : Group() {
     }
 }
 
-class EnemyBase : Group() {
+class EnemyBase : ReactiveBase() {
     private val radar: Actor
 
     private val tweenManager = TweenManager()

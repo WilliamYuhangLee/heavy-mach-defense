@@ -29,8 +29,11 @@ class MissionLoadingScreen(game: MainGame, private val level: Int,
         elapsed += delta
         try {
             assetManager.update(8)
-            progress.setText("Preparing mission $level: ${(assetManager.progress * 100).toInt()}%")
-            if (stageAssetsManager.isFullyLoaded() && buttonAssetsManager.isFullyLoaded()) {
+            val sceneReady = stageAssetsManager.isFullyLoaded() && buttonAssetsManager.isFullyLoaded()
+            if (sceneReady) combatEffectsAssets.loadNext()
+            val loadingProgress = assetManager.progress * 0.8f + combatEffectsAssets.progress * 0.2f
+            progress.setText("Preparing mission $level: ${(loadingProgress * 100).toInt()}%")
+            if (sceneReady && combatEffectsAssets.isLoaded) {
                 complete = true
                 Gdx.app.postRunnable { game.replaceScreen(StageScreen(game, level, save, saveIndex)) }
             } else if (elapsed > 20f) fail("Mission assets did not finish loading.")

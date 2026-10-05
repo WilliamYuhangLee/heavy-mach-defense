@@ -51,15 +51,21 @@ class CombatUnit(val id: Int, val team: Team, val kind: MachineKind, val level: 
 
 class Projectile(val team: Team, var x: Float, var y: Float, val targetId: Int?,
                  var targetX: Float, var targetY: Float, val damage: Float,
-                 val speed: Float, val splash: Float, val targetsBase: Boolean) {
+                 val speed: Float, val splash: Float, val targetsBase: Boolean,
+                 val kind: MachineKind, val twinBarrels: Boolean) {
     var age = 0f
 }
-class Blast(val x: Float, val y: Float, val radius: Float, var life: Float = 0.4f)
 
 class Battle(val level: Int, allyMaxHp: Float = 1000f, val enemiesEnabled: Boolean = true) {
     val units = mutableListOf<CombatUnit>()
     val projectiles = mutableListOf<Projectile>()
-    val blasts = mutableListOf<Blast>()
+    private val events = java.util.ArrayDeque<CombatEvent>()
+    fun drainEvents(): List<CombatEvent> = events.toList().also { events.clear() }
+    private fun emit(event: CombatEvent) {
+        // Bound presentation memory even when running the simulation without a renderer.
+        if (events.size >= 1024) events.removeFirst()
+        events.addLast(event)
+    }
     var allyMaxHp = allyMaxHp; private set
     var allyHp = allyMaxHp; private set
     val enemyMaxHp = 900f + level.coerceIn(1, 80) * 100f
@@ -111,8 +117,6 @@ class Battle(val level: Int, allyMaxHp: Float = 1000f, val enemiesEnabled: Boole
 
     private fun tick(dt: Float) {
         elapsed += dt
-        blasts.forEach { it.life -= dt }
-        blasts.removeAll { it.life <= 0f }
         if (enemiesEnabled) {
             waveClock -= dt
             if (waveClock <= 0f) {
@@ -145,7 +149,8 @@ class Battle(val level: Int, allyMaxHp: Float = 1000f, val enemiesEnabled: Boole
             if (distance <= unit.stats.range) {
                 if (unit.cooldown <= 0f) {
                     shoot(unit.team, unit.x, unit.y, target?.id, tx, ty, unit.stats.damage,
-                        unit.stats.projectileSpeed, unit.stats.splash, target == null)
+                        unit.stats.projectileSpeed, unit.stats.splash, target == null, unit.kind, unit.id,
+                        unit.team == Team.ALLY && unit.turretKind == null && unit.kind != MachineKind.TANKER)
                     unit.cooldown = unit.stats.reload
                     unit.firing = 0.12f
                 }
@@ -176,46 +181,80 @@ class Battle(val level: Int, allyMaxHp: Float = 1000f, val enemiesEnabled: Boole
         while (iterator.hasNext()) {
             val shot = iterator.next(); shot.age += dt
             val target = shot.targetId?.let { id -> units.firstOrNull { it.id == id && it.hp > 0f } }
-            if (shot.targetId != null && target == null) { iterator.remove(); continue }
             if (target != null) { shot.targetX = target.x; shot.targetY = target.y }
             val d = distance(shot.x, shot.y, shot.targetX, shot.targetY)
             if (d <= shot.speed * dt) {
                 if (shot.targetsBase) {
-                    if (shot.team == Team.ALLY) enemyHp = (enemyHp - shot.damage).coerceAtLeast(0f)
-                    else allyHp = (allyHp - shot.damage).coerceAtLeast(0f)
+                    damageBase(if (shot.team == Team.ALLY) Team.ENEMY else Team.ALLY,
+                        shot.damage, shot.x, shot.y)
                 } else if (shot.splash > 0f) {
-                    units.filter { it.team != shot.team && distance(it.x,it.y,shot.targetX,shot.targetY) <= shot.splash }
-                        .forEach { it.hp -= shot.damage }
-                } else if (target != null) target.hp -= shot.damage
-                blasts.add(Blast(shot.targetX, shot.targetY, max(8f, shot.splash)))
+                    units.filter { it.team != shot.team && it.hp > 0f && distance(it.x,it.y,shot.targetX,shot.targetY) <= shot.splash }
+                        .forEach { damageUnit(it, shot.damage, shot.x, shot.y) }
+                } else if (target != null) damageUnit(target, shot.damage, shot.x, shot.y)
+                emit(CombatEvent.Impact(shot.kind, shot.targetX, shot.targetY,
+                    atan2(shot.targetY - shot.y, shot.targetX - shot.x) * 180f / PI.toFloat(), shot.splash))
                 iterator.remove()
             } else if (shot.age > 8f) iterator.remove()
             else { shot.x += (shot.targetX - shot.x) / d * shot.speed * dt; shot.y += (shot.targetY - shot.y) / d * shot.speed * dt }
         }
         removeDead()
-        result = when { allyHp <= 0f -> BattleResult.DEFEAT; enemyHp <= 0f -> BattleResult.VICTORY; else -> BattleResult.RUNNING }
+        resolveOutcome()
     }
     private fun fireBase(team: Team, x: Float, y: Float, damage: Float): Boolean {
         val target = units.filter { it.team != team && it.hp > 0f && distance(x,y,it.x,it.y) <= 240f }
             .minByOrNull { distance(x,y,it.x,it.y) } ?: return false
-        shoot(team,x,y,target.id,target.x,target.y,damage,550f,0f,false)
+        shoot(team,x,y,target.id,target.x,target.y,damage,550f,0f,false,MachineKind.TANKER,null,false)
         return true
     }
-    private fun shoot(team: Team,x: Float,y: Float,id: Int?,tx: Float,ty: Float,damage: Float,speed: Float,splash: Float,base: Boolean) {
-        projectiles.add(Projectile(team,x,y,id,tx,ty,damage,speed,splash,base)); shotsFired++
+    private fun shoot(team: Team, x: Float, y: Float, id: Int?, tx: Float, ty: Float,
+                      damage: Float, speed: Float, splash: Float, base: Boolean,
+                      kind: MachineKind, sourceId: Int?, twinBarrels: Boolean) {
+        projectiles.add(Projectile(team, x, y, id, tx, ty, damage, speed, splash, base, kind, twinBarrels))
+        emit(CombatEvent.Shot(sourceId, team, kind, x, y,
+            atan2(ty - y, tx - x) * 180f / PI.toFloat(), twinBarrels))
+        shotsFired++
+    }
+
+    private fun damageUnit(unit: CombatUnit, damage: Float, x: Float, y: Float) {
+        unit.hp -= damage
+        emit(CombatEvent.Hit(unit.id, unit.team, unit.x, unit.y,
+            atan2(unit.y - y, unit.x - x) * 180f / PI.toFloat(), damage))
+    }
+
+    private fun damageBase(team: Team, damage: Float, x: Float, y: Float) {
+        val baseY = if (team == Team.ALLY) 144f else 1904f
+        if (team == Team.ALLY) allyHp = (allyHp - damage).coerceAtLeast(0f)
+        else enemyHp = (enemyHp - damage).coerceAtLeast(0f)
+        emit(CombatEvent.Hit(null, team, 256f, baseY,
+            atan2(baseY - y, 256f - x) * 180f / PI.toFloat(), damage))
+    }
+
+    private fun resolveOutcome() {
+        if (result != BattleResult.RUNNING) return
+        val destroyed = when {
+            allyHp <= 0f -> Team.ALLY
+            enemyHp <= 0f -> Team.ENEMY
+            else -> return
+        }
+        result = if (destroyed == Team.ALLY) BattleResult.DEFEAT else BattleResult.VICTORY
+        projectiles.clear()
+        emit(CombatEvent.Destroyed(null, destroyed, MachineKind.TANKER,
+            256f, if (destroyed == Team.ALLY) 80f else 1992f))
     }
     fun special(x: Float,y: Float,damage: Float,radius: Float,stun: Float = 0f) {
         if (result != BattleResult.RUNNING) return
         units.filter { it.team == Team.ENEMY && distance(x,y,it.x,it.y) <= radius }.forEach {
-            it.hp -= damage; it.stunnedFor = max(it.stunnedFor, stun)
+            damageUnit(it, damage, x, y); it.stunnedFor = max(it.stunnedFor, stun)
         }
-        if (distance(x,y,256f,1904f) <= radius) enemyHp = (enemyHp - damage * 0.25f).coerceAtLeast(0f)
-        blasts.add(Blast(x,y,radius,0.65f)); removeDead()
-        if (enemyHp <= 0f) result = BattleResult.VICTORY
+        if (distance(x,y,256f,1904f) <= radius) damageBase(Team.ENEMY, damage * 0.25f, x, y)
+        emit(CombatEvent.Impact(if (stun > 0f) MachineKind.ION else MachineKind.HEAVY_MISSILE,
+            x, y, 0f, radius, stun > 0f))
+        removeDead()
+        resolveOutcome()
     }
     private fun removeDead() {
         units.filter { it.hp <= 0f }.forEach {
-            blasts.add(Blast(it.x,it.y,24f))
+            emit(CombatEvent.Destroyed(it.id, it.team, it.kind, it.x, it.y))
             if (it.team == Team.ENEMY) { defeatedEnemies++; creditsEarned += 45L + it.level * 10L }
         }
         units.removeAll { it.hp <= 0f }

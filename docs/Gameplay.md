@@ -14,12 +14,15 @@ Destroy the enemy base before your own base reaches zero health.
 - Completed machines deploy above your base and advance automatically. They stop
   to shoot enemies within range, then continue toward the enemy base.
 - Enemy units arrive in waves. Both bases have defensive cannons. Health bars,
-  projectiles, and explosions show the battle's progress.
+  projectiles, and explosions show the battle's progress. Weapons recoil and flash
+  when firing; hits produce sparks, flashes, and explosions. Damaged bases shake,
+  smoke, and burn.
 - Scroll or drag the battlefield to follow the action. The scope on the left
   shows the part of the battlefield currently visible.
 - Cells refill during battle. Enemy kills earn CR; victories give an additional
   reward, unlock the next mission, and grant a bomb charge.
-- The result screen offers **Next mission**, **Retry mission**, and **Mission select**.
+- When a base is destroyed, the camera shows its explosion before the result screen.
+  The result screen offers **Next mission**, **Retry mission**, and **Mission select**.
   Campaign progress and CR are saved on either victory or defeat. Mission 80 is
   the final mission; completed missions can be replayed for smaller rewards.
 

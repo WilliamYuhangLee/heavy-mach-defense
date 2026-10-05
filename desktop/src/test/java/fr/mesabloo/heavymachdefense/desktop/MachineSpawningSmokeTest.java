@@ -211,6 +211,7 @@ public class MachineSpawningSmokeTest extends ApplicationAdapter {
                     }
                     check(battle.getElapsed() < 180f, "Rifle strategy should finish mission 1");
                     if (battle.getResult() == BattleResult.RUNNING) return;
+                    for (int i = 0; i < 20 && button(screen.getUi().getRoot(), "Next mission") == null; i++) mission.render(0.1f);
                     check(battle.getResult() == BattleResult.VICTORY && battle.getDefeatedEnemies() > 0, "Units must fight and destroy enemy base");
                     check(music.isPlaying() && music.getPosition() > 0f, "Actual music stream must advance");
                     GameSave persisted = Json.Default.decodeFromString(GameSave.Companion.serializer(),
@@ -260,6 +261,7 @@ public class MachineSpawningSmokeTest extends ApplicationAdapter {
                     check(!find(screen.getBackground(), SpecialBuildSlot.class).isDisabled(), "Purchased charge must refresh the slot");
                     for (int i = 0; i < 30 && battle.getResult() == BattleResult.RUNNING; i++) mission.render(0.25f);
                     if (battle.getResult() == BattleResult.RUNNING) return;
+                    for (int i = 0; i < 20 && button(screen.getUi().getRoot(), "Retry mission") == null; i++) mission.render(0.1f);
                     check(battle.getResult() == BattleResult.DEFEAT, "Idle player must lose");
                     check(save.getLastStageCompleted() == 1, "Defeat must not unlock a stage");
                     previousMission = mission;
@@ -270,7 +272,30 @@ public class MachineSpawningSmokeTest extends ApplicationAdapter {
                 case 9: {
                     if (!(screen instanceof StageScreen) || screen == previousMission) return;
                     StageScreen mission = (StageScreen) screen;
-                    check(mission.getGameWorld().getBattle().getLevel() == 2 && !TimersKt.getCellMiningTimer().isPaused(), "Retry must create a running battle");
+                    Battle battle = mission.getGameWorld().getBattle();
+                    check(battle.getLevel() == 2, "Retry must create mission 2");
+                    BuildQueue queue = (BuildQueue) field(mission, "buildQueue");
+                    for (int i = 0; i < 20 && battle.getResult() == BattleResult.RUNNING; i++) {
+                        if (queue.getNumberOf(MachineKind.RIFLE) == 0 && (Long) field(mission, "currentCells") >= 60)
+                            click(find(screen.getBackground(), MachineBuildSlot.class));
+                        mission.render(0.1f);
+                    }
+                    if (battle.getResult() == BattleResult.RUNNING) return;
+                    for (int i = 0; i < 20 && button(screen.getUi().getRoot(), "Next mission") == null; i++) mission.render(0.1f);
+                    check(battle.getResult() == BattleResult.VICTORY, "Mission 2 must be winnable");
+                    GameSave loaded = Json.Default.decodeFromString(GameSave.Companion.serializer(),
+                        Gdx.app.getPreferences(GameSave.PREFERENCES_PATH).getString("0"));
+                    check(loaded.getLastStageCompleted() == 2 && loaded.getBuildSlots().size() == 2,
+                        "Mission 2 must save the unlocked missile without crashing");
+                    previousMission = mission;
+                    click(button(screen.getUi().getRoot(), "Next mission"));
+                    next(91, "PASS: mission 2 victory and persisted missile unlock");
+                    break;
+                }
+                case 91: {
+                    if (!(screen instanceof StageScreen) || screen == previousMission) return;
+                    StageScreen mission = (StageScreen) screen;
+                    check(mission.getGameWorld().getBattle().getLevel() == 3, "Unlocked mission 3 must start");
                     click(find(screen.getBackground(), MenuButton.class));
                     click(button(screen.getUi().getRoot(), "Save & Mission Select"));
                     next(10, "Retry -> menu -> mission select");

@@ -70,6 +70,23 @@ object BattleSimulationTest {
         }
         check(distances.all { abs(it-distances[0])<0.01f }) { "Frame rate changed simulation" }
 
+        val eventBattle = Battle(1, enemiesEnabled = false)
+        val shooter = eventBattle.spawn(MachineKind.RIFLE, 1, atX = 250f, atY = 900f)
+        val victim = eventBattle.spawn(MachineKind.RIFLE, 1, Team.ENEMY, atX = 250f, atY = 1020f)
+        eventBattle.advance(1f / 60f)
+        check(eventBattle.drainEvents().any { it is CombatEvent.Shot && it.sourceId == shooter.id })
+        repeat(20) { eventBattle.advance(1f / 60f) }
+        val impacts = eventBattle.drainEvents()
+        check(impacts.any { it is CombatEvent.Hit && it.targetId == victim.id })
+        check(impacts.any { it is CombatEvent.Impact })
+        eventBattle.special(250f, 1020f, 10000f, 30f)
+        check(eventBattle.drainEvents().count { it is CombatEvent.Destroyed && it.unitId == victim.id } == 1)
+        eventBattle.special(256f, 1904f, 5000f, 60f)
+        check(eventBattle.result == BattleResult.VICTORY)
+        check(eventBattle.drainEvents().count { it is CombatEvent.Destroyed && it.unitId == null } == 1)
+        eventBattle.advance(0.2f)
+        check(eventBattle.drainEvents().isEmpty()) { "A stopped battle must not replay destruction effects" }
+
         val priority=Battle(1,enemiesEnabled=false)
         priority.spawn(MachineKind.RIFLE,1,atX=256f,atY=1770f)
         val guard=priority.spawn(MachineKind.RIFLE,1,Team.ENEMY,atX=256f,atY=1830f)

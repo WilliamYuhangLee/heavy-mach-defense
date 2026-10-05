@@ -51,11 +51,16 @@ projectiles, victory/defeat dialogs, saved rewards, retry/next-mission controls,
 machine/turret upgrades and equipment, special attacks, and music/sound effects.
 All 80 maps are available through campaign progression.
 
+Combat feedback includes barrel recoil, muzzle flashes, outlined tracers, missile
+trails, energy bolts, hit flashes, debris, and animated explosions using the
+included sprite assets. Damaged bases shake, smoke, and burn; their destruction
+plays before the result dialog. Effects stay visible when scrolling the battlefield.
+
 Mission entry uses a progress screen with timeout/error handling. Shared assets
 remain loaded across mission changes, and a new mission resets pause state.
 
 Combat balance and enemy waves are new to this remake; the exact original iOS
-balance, scripted enemy placements, and animations are not reproduced. Desktop
+balance, scripted enemy placements, and animation timing are not reproduced. Desktop
 is the supported playable target; mobile packaging remains unfinished.
 
 ## Verification
@@ -63,21 +68,27 @@ is the supported playable target; mobile packaging remains unfinished.
 With Java 11 selected in `JAVA_HOME`, run:
 
 ```sh
-./gradlew :desktop:verifyBattleSimulation :desktop:verifyMachineSpawning :desktop:dist
+./gradlew :desktop:verifyBattleSimulation :desktop:verifyMachineSpawning :desktop:verifyCombatEffects :desktop:dist
 ```
 
 The deterministic simulation test covers targeting, movement at 30/60/120 FPS,
 mutual combat, damage/deaths, kill rewards, turrets, EMP, pause, victory/defeat,
-progression, replay rewards, and later-stage strategies using the shipping build
-costs and times.
+progression, replay rewards, combat events, unlocked-equipment save round trips,
+and later-stage strategies using the shipping build costs and times.
 
 The graphics test requires a desktop session. It uses a hidden window and an
 isolated temporary preferences directory; player saves are not read or modified.
 It follows the fresh-launch menu path, clicks real build controls, wins a mission,
 checks saved rewards, enters the next mission, buys/uses a special, loses, retries,
-returns through the menus, verifies sound playback/volume, and loads all 80 maps
+completes mission 2 with its missile unlock and enters mission 3, returns through
+the menus, verifies sound playback/volume, and loads all 80 maps
 and every available machine/turret sprite. Optional framebuffer captures can be
 written with `-PsmokeCaptureDir=/absolute/output/directory`.
+
+The combat-effects test also uses an isolated hidden window. It checks recoil,
+hit/destruction effects, pause, base reactions, sustained firing after 30 seconds,
+and visible tracer pixels after scrolling. Use
+`-PeffectsCaptureDir=/absolute/output/directory` to capture PNG frames and key scenes.
 
 ## Gameplay
 

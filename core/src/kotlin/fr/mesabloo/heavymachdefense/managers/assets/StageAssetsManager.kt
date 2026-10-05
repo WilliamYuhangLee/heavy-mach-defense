@@ -110,6 +110,8 @@ class StageAssetsManager : Disposable {
     }
 
     private fun allAtlases() = listOf(
+        "gfx/models/bullets/ally.atlas",
+        "gfx/models/bullets/shell.atlas",
         MACHINE_BODIES,
         MACHINE_WEAPONS,
         ALLY_TURRET_BODIES,

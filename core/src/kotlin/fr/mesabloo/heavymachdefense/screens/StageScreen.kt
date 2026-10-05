@@ -69,7 +69,10 @@ class StageScreen(
     private var miningRemainder = 0f
     private var selectedSpecial: SpecialKind? = null
     private var lastShotCount = 0
-    private var lastEnemyDeaths = 0
+    private var lastDestructions = 0
+    private var resultDelay = 0f
+    private var resultReward = 0L
+    private var resultSaved = false
     private var effectCooldown = 0f
     private lateinit var statusLabel: Label
 
@@ -195,6 +198,7 @@ class StageScreen(
             })
 
         this.background.addActor(BuildQueue(this::upgradeMenuShown, this.upgrades, this.save) { item ->
+            if (gameWorld.battle.result != BattleResult.RUNNING) return@BuildQueue
             when (item) {
                 is BuildMachineItem -> this.gameWorld.spawnMachine(item.kind, item.level)
                 is BuildTurretItem -> this.gameWorld.spawnTurret(item.kind, item.level)
@@ -363,6 +367,8 @@ class StageScreen(
         this.baseDefenseLevel = this.save.mainUpgrades[UpgradeKind.BASE_DEFENSE] ?: 1
         this.baseAttackLevel = this.save.mainUpgrades[UpgradeKind.BASE_CANNON] ?: 1
 
+        // A targeted special can end combat during input processing, before the build queue acts.
+        if (::gameWorld.isInitialized && gameWorld.battle.result != BattleResult.RUNNING) cellMiningTimer.pause()
         super.render(delta)
 
         if (!this.isLoading) {
@@ -381,9 +387,9 @@ class StageScreen(
                 fr.mesabloo.heavymachdefense.managers.soundEffectManager.playShot(effectsVolume)
                 lastShotCount = battle.shotsFired; effectCooldown = 0.12f
             }
-            if (battle.defeatedEnemies != lastEnemyDeaths) {
+            if (gameWorld.effects.presentedDestructions != lastDestructions) {
                 fr.mesabloo.heavymachdefense.managers.soundEffectManager.playExplosion(effectsVolume)
-                lastEnemyDeaths = battle.defeatedEnemies
+                lastDestructions = gameWorld.effects.presentedDestructions
             }
             playerLife = (100f * battle.allyHp / battle.allyMaxHp).toLong()
             enemyLife = (100f * battle.enemyHp / battle.enemyMaxHp).toLong()
@@ -395,7 +401,22 @@ class StageScreen(
                 selectedSpecial = null
                 statusLabel.setText("Build units on the right. Destroy the enemy base.")
             }
-            if (!resultHandled && battle.result != BattleResult.RUNNING) finishMission()
+            if (!resultHandled && battle.result != BattleResult.RUNNING) {
+                cellMiningTimer.pause()
+                if (!resultSaved) {
+                    resultSaved = true
+                    val victory = battle.result == BattleResult.VICTORY
+                    resultReward = if (victory) MissionProgress.victory(save, level) else 0L
+                    persistSave()
+                    // Show the defeated base while its destruction sequence plays.
+                    (terrain.parent as? ScrollPane)?.also { pane ->
+                        pane.scrollY = if (victory) 0f else pane.maxY
+                        pane.updateVisualScroll()
+                    }
+                }
+                resultDelay += delta.coerceIn(0f, 0.25f)
+                if (resultDelay >= 1.35f) finishMission()
+            }
         }
     }
 
@@ -450,8 +471,7 @@ class StageScreen(
         resultHandled = true
         cellMiningTimer.pause()
         val victory = gameWorld.battle.result == BattleResult.VICTORY
-        val reward = if (victory) MissionProgress.victory(save, level) else 0L
-        persistSave()
+        val reward = resultReward
         val choices = mutableListOf<Pair<String, () -> Unit>>()
         if (victory && level < MissionProgress.LAST_STAGE) choices.add("Next mission" to { openMission(level + 1) })
         choices.add("Retry mission" to { openMission(level) })

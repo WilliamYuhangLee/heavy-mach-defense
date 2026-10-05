@@ -109,6 +109,7 @@ class MainGame : KtxGame<AbstractScreen>() {
         Gdx.app.debug(this.javaClass.simpleName, "Quitting application")
 
         assetManager.dispose()
+        fr.mesabloo.heavymachdefense.managers.assets.combatEffectsAssets.dispose()
 
         fontManager.dispose()
 

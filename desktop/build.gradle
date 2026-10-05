@@ -87,3 +87,18 @@ task verifyBattleSimulation(type: JavaExec, dependsOn: testClasses) {
     main = "fr.mesabloo.heavymachdefense.desktop.BattleSimulationTest"
     classpath = sourceSets.test.runtimeClasspath
 }
+
+
+task verifyCombatEffects(type: JavaExec, dependsOn: testClasses) {
+    group = "verification"
+    description = "Checks rendered recoil, impacts, explosions, scrolling projectiles and mission endings."
+    main = "fr.mesabloo.heavymachdefense.desktop.CombatEffectsSmokeTest"
+    classpath = sourceSets.test.runtimeClasspath
+    workingDir = project.assetsDir
+    if (project.hasProperty("effectsCaptureDir")) {
+        systemProperty "hm.effects.capture", project.property("effectsCaptureDir")
+    }
+    if (System.getProperty("os.name").toLowerCase().contains("mac")) {
+        jvmArgs "-XstartOnFirstThread"
+    }
+}
